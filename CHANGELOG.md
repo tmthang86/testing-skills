@@ -51,6 +51,32 @@ ones.
 
 ### design-conformance-testing — field findings added from a real project
 
+- `references/layers.md` — **pin both sides to the same theme state, or you
+  measure the theme.** On an app shipping ten palettes, a mockup hard-coded to
+  light compared against an app following the user's stored dark preference
+  reported **70 findings, 44 high**, every one of them naming a real token and
+  a real colour. Reading the app's own theme attributes and stamping them onto
+  the mockup gave **52 findings, 26 high**: eighteen high-severity findings
+  were an artefact of the harness. Extends to any global state reaching
+  computed style — locale, density, high-contrast, reduced-transparency
+- `references/layers.md` — **the mockup directory must be in the CSS
+  toolchain's source set.** Utility CSS generators emit only what they scan,
+  and mockups usually sit outside the scanned tree, so every class resolves to
+  nothing. The mockup renders unstyled and the comparison reports a diff on
+  every property of every element — a catastrophic-looking drift that is an
+  empty stylesheet, and harder to diagnose than a blank screen because the
+  output looks like what the tool exists to produce. Includes serving the
+  mockup from the app's own origin, copying it in as a test-build step so a
+  proposal never ships, and the stable-filename trap with content hashing
+- `references/platforms.md` — **a window is not a viewport.** Porting the
+  comparison from Playwright to WebdriverIO: `setWindowSize()` takes device
+  pixels, so 960/1280/1920 produced viewports of 480/640/960 on a 2× display
+  and three confident `within-viewport` failures. Also measured: the
+  automation channel ignored the window's declared `minWidth: 960` and placed
+  the app at 480 CSS px, a state no user can reach. Measure the achieved
+  viewport and judge against that; the width you asked for and the width you
+  got are different variables and only one is evidence
+
 - `references/layers.md` gains a **measured drift case**: an app with a
   committed `tokens.css`, an ADR recording its visual direction, and a contrast
   harness — and still 286 inline style blocks across 14 files, 14 of its 24

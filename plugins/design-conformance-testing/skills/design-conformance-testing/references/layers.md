@@ -167,6 +167,39 @@ node scripts/compare-design.mjs \
 
 **An unmatched element is a finding.** If a testid exists in the mockup and not in the implementation, something designed wasn't built (or was built differently). The script reports these separately rather than silently skipping.
 
+### Pin both sides to the same theme state, or you measure the theme
+
+Measured on a desktop app shipping five visual identities × light/dark, so ten palettes. The mockup declared `data-mode="light"` in its markup; the running app follows the user's stored preference and happened to be in dark. First run:
+
+```
+70 finding(s): 44 high, 26 medium
+  [high] nav-browse · color: mockup rgba(10,109,148,1), implementation rgba(94,200,255,1)
+  [high] nav-browse · backgroundColor: mockup rgba(10,109,148,0.13), implementation rgba(94,200,255,0.17)
+  ...
+```
+
+Every one of those reads like real drift and points at a specific token. None of them was: the two sides were simply wearing different palettes. Reading the app's own theme attributes before navigating, then stamping them onto the mockup after it loads, gave **52 findings, 26 high** — eighteen high-severity findings were an artefact of the harness.
+
+```js
+const palette = await readThemeAttributes(app)   // e.g. { theme: "glass", mode: "dark" }
+await goto(mockupUrl)
+await applyThemeAttributes(palette)              // same state, both sides
+```
+
+The more palettes a product ships, the worse this gets: with ten, any run where the sides disagree reports a whole palette's worth of plausible, unreal drift — and a reviewer who chases the first three findings and finds them bogus stops reading the report. **Assert the pinning happened** rather than assuming it; a theme attribute that failed to apply produces exactly the same output as one that was never set.
+
+The same applies to any global state that reaches computed style: locale (which changes fonts and text length), density or compact modes, high-contrast, and reduced-motion or reduced-transparency preferences.
+
+### The mockup directory must be in your CSS toolchain's source set
+
+With utility CSS — Tailwind, UnoCSS, anything that generates classes from what it scans — the generator only emits the utilities it *sees*. Mockups usually live outside the scanned source tree, so every class in the mockup resolves to nothing.
+
+The failure mode is what makes this worth a section: the mockup renders **unstyled**, the comparison runs perfectly, and it reports a diff on every property of every element. That reads as a catastrophic design drift and is actually an empty stylesheet. It is much harder to diagnose than a blank screen, because the output looks like exactly the thing the tool exists to produce.
+
+Point the scanner at the mockups (Tailwind v4: `@source "../mockups";`), then **verify the utilities are in the built stylesheet before trusting a single finding** — grep the output for a handful of the classes the mockup uses. Measured cost on one project: 56.39 kB → 58.77 kB, about 0.5 kB gzipped, and most of it stops being mockup-only as the implementation adopts the same utilities.
+
+Serve the mockup from the **application's own origin** where you can. It sidesteps `file://` restrictions, keeps relative asset paths working, and on an embedded webview (Tauri, Electron) it is often the only navigation the host will allow at all. Copy the mockups into the build output as a test-build step rather than committing them to the product's public directory, so a design proposal never ships to users. Copy the stylesheet beside them under a **stable name** too — content-hashed filenames change every build, and a mockup linking a hashed file breaks silently into the unstyled case above.
+
 ---
 
 ## Layer 3 — Spec & flow coverage

@@ -55,6 +55,41 @@ exactly the state where it silently proves nothing. It is the check most likely 
 because a focus ring looks like an ordinary CSS assertion. The canonical statement lives in
 [`layers.md`](layers.md#focus-treatment-is-the-one-conformance-check-you-cannot-drive-from-inside-the-page).
 
+### Resizing for responsive checks: a window is not a viewport
+
+Measured porting the bundled comparison script from Playwright to WebdriverIO against a Tauri
+WKWebView. Two surprises, and both produce a **plausible wrong answer** rather than an error — which
+is worse, because the output looks like findings.
+
+**1. `setWindowSize()` takes device pixels; a design is expressed in CSS pixels.** Playwright's
+`setViewportSize()` sets the viewport directly. WebDriver's window-rect command sets the *outer
+window*, and on a 2× display the CSS viewport comes out at half the number you passed, minus the
+title bar:
+
+```
+requested 960px window  → viewport 480x378
+requested 1280px window → viewport 640x378
+requested 1920px window → viewport 960x508
+```
+
+Left uncorrected, the invariant checks reported three confident `within-viewport` failures naming
+real elements and real pixel values. Scale the request by `devicePixelRatio` — and then, regardless,
+**measure `document.documentElement.clientWidth` and judge the invariants against that**, never
+against the number you asked for. Two independent things can make the achieved width differ from the
+request: the pixel-ratio conversion, and a display too small to host the window at all, where the
+window manager silently clamps.
+
+**2. The automation channel may ignore the window's own minimum size.** The app's config set
+`minWidth: 960`; the driver put it at 480 CSS px anyway. Everything measured there was a report about
+a state no user can reach. If your app declares a minimum size, assert the width you got is at or
+above it before believing any finding at that width — and pick your responsive breakpoints from the
+range the app can actually occupy. Testing 375px on a desktop app with a 960px minimum measures a
+layout that will never exist.
+
+The general rule underneath both: **the viewport you asked for and the viewport you got are different
+variables, and only one of them is evidence.** Log both. A report that names "1920px" when the display
+could only give 1500px is a report that will be argued about later.
+
 ## Mobile (iOS & Android)
 
 **Token conformance is the loss** — but only the per-element half of it. The theme matrix runs fully here: `res/values/` against `res/values-night/`, or an asset catalog's Any/Dark appearances, is exactly the peer shape that check is built for, and `check-theme-contract.mjs --android app/src/main/res` reads it directly. Run that first; it is the cheapest conformance available on mobile and it needs no device.
