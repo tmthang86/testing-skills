@@ -154,6 +154,23 @@ was blocking precisely the unattended overnight case the suite was built for.
 *password* delay says. A machine set to 28,800 s still reported `CGSSessionScreenIsLocked = true`
 immediately; that delay governs only whether a password is demanded on wake.
 
+**Unattended runs on a locked machine are viable — measured.** Whole suites, run with the display
+asleep and the session locked, on mains power:
+
+| Suite | Locked |
+|---|---|
+| offline suite (9 specs) | **9 passed** |
+| dependency-absent suite (1 spec) | **1 passed** |
+| live suite (11 specs, incl. a 42-page crawl) | **10 passed, 1 failed** |
+
+**Twenty of twenty-one.** The single failure is the focus-ring check, for the `:focus-visible`
+reason above — it needs a key window, and a locked session never has one. Screen capture is also
+out (blank images). Everything asserting on DOM state runs fine.
+
+The suite's own keychain-signout spec was deliberately not run, since it deletes an item the shipped
+app shares; whether a login keychain stays readable to a locked session is therefore untested rather
+than assumed.
+
 **5. A short-lived CLI helper reads stale system state.** Both "is this app active" and "who is
 frontmost" are cached and refresh on the run loop. A helper process that activates an app, sleeps,
 and then asks will be told the activation failed when it succeeded. **Service the run loop between

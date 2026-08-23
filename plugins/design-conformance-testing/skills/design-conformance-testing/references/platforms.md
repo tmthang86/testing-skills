@@ -22,7 +22,30 @@ Two rows survive everywhere, and they are the ones to lean on when the rest degr
 
 ## Electron & Tauri
 
-These are web under the hood, so everything in `layers.md` applies unchanged — including the bundled `compare-design.mjs`, pointed at the app's rendered window instead of a URL. For Electron, launch via Playwright's `_electron` API and run token/mockup checks against the resulting page. This is the easy case; if the "desktop" app is Electron or Tauri, don't reach for native tooling.
+These are web under the hood, so the DOM-based layers apply — including the bundled
+`compare-design.mjs`, pointed at the app's rendered window instead of a URL. For Electron, launch via
+Playwright's `_electron` API and run token/mockup checks against the resulting page. If the
+"desktop" app is Electron or Tauri, don't reach for native tooling for layers 1–3.
+
+**Tauri on macOS is not quite the easy case, and two of the four layers have real limits.** Measured
+on a shipped Tauri app:
+
+| Layer | Tauri / macOS |
+|---|---|
+| Token conformance | **Full.** `getComputedStyle` reads normally through the embedded WebDriver's `execute` |
+| Mockup DOM-to-DOM | **Full**, same reason |
+| Spec & flow coverage | **Full** |
+| Visual baselines | **Works, but not with Playwright's `toHaveScreenshot()`** — you are on WebDriver, not Playwright, so you get WebDriver's screenshot or an OS window capture, without Playwright's masking and baseline management. Budget for building that seam yourself |
+| Accessibility — contrast, roles, targets | **Full** |
+| Accessibility — **focus treatment** | **Not from inside the page.** See the `:focus-visible` section in `layers.md`: it needs a real OS key event *and* a key window, and WKWebView additionally drops WebDriver's synthetic keys entirely |
+
+The last row is the one that surprises people, because focus rings are usually specified in the
+design system and look like an ordinary CSS assertion. They are not.
+
+One scheduling consequence, measured: on a **locked or sleeping** macOS session the DOM layers all
+still run — 20 of 21 specs in one suite passed with the screen locked — while window capture returns
+a **blank image** and focus-treatment checks fail. So unattended conformance runs are viable for
+layers 1–3 and need an awake display for layer 4.
 
 ## Mobile (iOS & Android)
 

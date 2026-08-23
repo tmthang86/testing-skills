@@ -38,6 +38,29 @@ ones.
 - Maestro-first mobile guidance with Appium fallback
 - Explicit handoff boundary to design-conformance-testing
 
+### design-conformance-testing — field findings added from a real project
+
+- `references/layers.md` gains a **measured drift case**: an app with a
+  committed `tokens.css`, an ADR recording its visual direction, and a contrast
+  harness — and still 286 inline style blocks across 14 files, 14 of its 24
+  tokens actually referenced from components, and **48 distinct hardcoded `px`
+  literals including every integer from 1 to 18**. A design system existing is
+  not evidence it is applied, and counting distinct literals is a five-second
+  opening measurement that needs no browser
+- `references/layers.md` gains the limit on **focus treatment**: `:focus-visible`
+  depends on how focus was caused, so a script `focus()` can never satisfy it and
+  a spec built that way passes against an app with no focus ring at all. Includes
+  the delivery matrix — script, WebDriver, OS key, OS key on a locked session
+- `references/layers.md` gains contrast **opacity compositing**, which found
+  three real token defects on first run in one project
+- `references/layers.md` notes that window capture returns a **blank image** on a
+  sleeping display, silently — an unattended overnight visual run can produce a
+  full set of blank baselines
+- `references/platforms.md` corrects "Tauri is the easy case": token, mockup,
+  spec and most accessibility layers are full, but visual baselines lose
+  Playwright's `toHaveScreenshot()` machinery and focus treatment is not
+  reachable from inside the page at all
+
 ### design-conformance-testing
 - Source-of-truth routing that prefers repo-committed artifacts (tokens, HTML
   mockups, markdown specs) over Figma

@@ -127,7 +127,7 @@ Honest state, so nobody trusts more than is warranted:
 | | Status |
 |---|---|
 | Skill content | Drafted, reviewed, structurally valid |
-| `false-greens.md` and the desktop native-input material | **Measured**, on one real Tauri app over about a week — not researched. Every case in them was observed, and the numbers are the observed ones |
+| `false-greens.md`, the desktop native-input material, and the field findings in the conformance `layers.md` / `platforms.md` | **Measured**, on one real Tauri app over about a week — not researched. Every case in them was observed, and the numbers are the observed ones |
 | Comparator pure logic | **Verified** — 33 self-tests |
 | Comparator browser path | Written; verified by CI on every push, not yet exercised against a real app |
 | Skill triggering accuracy | **Not measured** |
