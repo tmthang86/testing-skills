@@ -89,6 +89,21 @@ ones.
   it goes red. A `--self-test` proves the script's logic, not that the check is
   pointed at your app correctly
 
+- **Adopting conformance on a non-conformant codebase**: baseline the violation
+  count and gate on it rising, not on it being non-zero. A gate that is red from
+  day one for reasons nobody caused gets disabled within a week, which is the
+  most common way this layer is lost — before it has caught anything. Includes
+  the two ways a ratchet rots, which checks to exempt from it (the decidable
+  ones block immediately), and the redesign case, where the artifact is
+  deliberately ahead of the code and Layer 2 runs as a worklist rather than a
+  gate until the migration closes
+- Scheduling summary corrected: focus treatment needs an *unlocked* session, not
+  merely an awake display, and it sits under accessibility rather than layer 4 —
+  so scheduling by layer number silently loses it
+- `layers.md` marked canonical for the `:focus-visible` finding, which had
+  spread to three files; the others now point at it
+- The measured px-literal figures now carry the exact grep that produced them
+
 ### Repo
 - Marketplace + two plugin manifests
 - `validate-repo.mjs` for frontmatter, cross-references, manifest consistency

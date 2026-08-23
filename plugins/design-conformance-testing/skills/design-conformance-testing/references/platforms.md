@@ -45,7 +45,15 @@ design system and look like an ordinary CSS assertion. They are not.
 One scheduling consequence, measured: on a **locked or sleeping** macOS session the DOM layers all
 still run — 20 of 21 specs in one suite passed with the screen locked — while window capture returns
 a **blank image** and focus-treatment checks fail. So unattended conformance runs are viable for
-layers 1–3 and need an awake display for layer 4.
+layers 1–3.
+
+**Two things need more than an awake display, and one of them is easy to miss in this summary.**
+Layer 4 needs the display awake — `caffeinate -d` covers it, since on macOS the screen locks the
+moment the display sleeps. **Focus treatment needs an *unlocked* session**, and it is filed under
+accessibility rather than layer 4, so a reader scheduling by layer number will schedule it into
+exactly the state where it silently proves nothing. It is the check most likely to be lost this way,
+because a focus ring looks like an ordinary CSS assertion. The canonical statement lives in
+[`layers.md`](layers.md#focus-treatment-is-the-one-conformance-check-you-cannot-drive-from-inside-the-page).
 
 ## Mobile (iOS & Android)
 

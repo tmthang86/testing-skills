@@ -10,6 +10,7 @@
 - [Responsive: cuts across every layer](#responsive-cuts-across-every-layer)
 - [Accessibility conformance](#accessibility-conformance)
 - [Figma (optional)](#figma-optional)
+- [Adopting conformance on a codebase that isn't conformant yet](#adopting-conformance-on-a-codebase-that-isnt-conformant-yet)
 - [Wiring it into CI](#wiring-it-into-ci)
 
 ---
@@ -123,8 +124,15 @@ Two things follow for how you pitch this layer:
   and a test harness that checked contrast — and the spacing still fragmented. Token conformance is
   worth building *especially* where a system is documented, because that is where everyone assumes
   the problem is already solved.
-- **Count the distinct literals first.** It is a five-second grep, it needs no browser, and the
-  distribution alone tells you whether there is a scale. It is the cheapest possible opening
+- **Count the distinct literals first.** It needs no browser, and the distribution alone tells you
+  whether there is a scale. State the command with the number, because a reader who runs a slightly
+  different grep gets a different count and then distrusts the whole measurement — the figures above
+  come from arbitrary-value syntax in `.tsx` only:
+
+  ```bash
+  grep -rohE '\[[0-9]+px\]' src --include='*.tsx' | grep -oE '[0-9]+' | sort -n | uniq -c
+  ```
+ It is the cheapest possible opening
   measurement for a conformance engagement, and it produces a number a team can act on.
 
 ---
@@ -309,6 +317,9 @@ difference between the check finding things and not.
 
 ### Focus treatment is the one conformance check you cannot drive from inside the page
 
+> **Canonical statement of this finding.** `platforms.md` and the e2e skill's `desktop.md` both
+> reference it; when it changes, change it here and leave those as pointers.
+
 If the design system specifies a focus ring — most do — verifying it has a constraint nothing else
 in this file has: **`:focus-visible` depends on how focus was caused, not merely that it was.**
 
@@ -346,6 +357,51 @@ If you do use it: the Figma MCP server exposes designs semantically — structur
 Tools like `uimatch` package this: compare a Figma `fileKey:nodeId` against a rendered component and report computed-style and layout differences next to the pixel diff, with a pass/fail gate for CI. The style breakdown is the useful output; the pixel ratio alone rarely is.
 
 Resist whole-app pixel matching against Figma. Layers 1 and 2 cover the same intent far more cheaply and produce diagnosable failures.
+
+---
+
+## Adopting conformance on a codebase that isn't conformant yet
+
+Every layer above assumes you are verifying a settled design against a settled artifact. **The two
+moments teams actually reach for conformance are the opposite of that**: adopting it on an existing
+codebase, and running it through a redesign. In both, the violation count on day one is large and
+stays large for weeks.
+
+That matters because of how a gate dies. Set the bar at zero violations, and the build is red from
+the first run for reasons nobody caused that day. A gate that is always red is not a gate — within a
+week someone adds `continue-on-error` and the layer is decorative. This is the most common way a
+conformance suite is lost, and it happens before it has ever caught anything.
+
+**Ratchet instead. Baseline the debt, then forbid it growing.**
+
+1. Run every check, record the violation count per check, commit that file.
+2. CI fails when any count **rises**, not when it is non-zero.
+3. Lowering a count updates the baseline in the same commit that lowered it.
+
+The gate is then honest on day one — it says "you added drift" — and the number only travels one
+direction.
+
+**Two ways the ratchet rots, both worth designing against:**
+
+- **A baseline that never moves.** Debt frozen is debt kept. Give the number somewhere to go: a
+  per-PR budget ("any PR touching a file must leave it no worse"), or a date the bar drops. Without
+  one, the ratchet becomes a permanent record of the mess rather than a route out.
+- **Re-baselining to make red go away.** Raising the baseline must look like what it is. Keep the
+  baseline in a committed file so raising it appears in the diff and is reviewed like code, never as
+  a CI flag or an auto-regenerated artifact. If the tooling can silently rewrite it, it will.
+
+**Do not ratchet the checks that cannot false-positive.** Theme-contract symmetry and locale parity
+are decidable: a token is defined in every theme or it is not. Those go straight to blocking, on day
+one, because their day-one count is usually zero or nearly so, and a ratchet around them just adds
+ceremony. Ratchet the layers carrying real existing debt — hardcoded values, spacing literals,
+mockup diffs.
+
+**During a redesign the comparison layer inverts.** The artifact is deliberately ahead of the code —
+that is what a redesign *is* — so a diff against the mockup is the expected state, not a defect.
+Run Layer 2 as a **worklist** while the migration is in flight: it tells you what has not been
+migrated yet, ranked, which is genuinely useful. Flip it to a gate only when the migration closes.
+Announce which mode it is in, in the report itself; a worklist read as a gate looks like catastrophe,
+and a gate read as a worklist looks like success.
 
 ---
 
