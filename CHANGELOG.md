@@ -4,6 +4,25 @@
 
 Initial draft of both skills.
 
+### design-conformance-testing — the blind spot in DOM-to-DOM comparison
+
+Contributed after a measured miss on the same Tauri desktop app.
+
+- `references/layers.md`, Layer 2 gains "The blind spot this layer cannot see
+  out of": a same-instrument comparison can prove two things **match**, and can
+  never prove either is **correct**. The measured case is a Tailwind v4 project
+  whose 4px spacing grid was really a 3.5px grid — `--spacing` left at the
+  default `.25rem` against a 14px root — which the DOM-to-DOM run reported as
+  clean agreement, correctly, because the mockup was authored in the same
+  utilities and both sides were wrong by the same eighth. A source-reading
+  static guard missed it too, for the complementary reason: `h-14` is a clean
+  multiple of 4 in the source text whatever it paints. What found it was a
+  person noticing a header bar shorter than its documented height. The fix
+  generalises: whatever two compared artifacts **share** — engine, stylesheet,
+  component library, token file, generator — is precisely what the comparison
+  is structurally unable to judge, and needs its own check pointed at the
+  shared thing itself
+
 ### e2e-testing — field findings added from a real project
 
 Contributed after using this material on a Tauri desktop app for about a week.

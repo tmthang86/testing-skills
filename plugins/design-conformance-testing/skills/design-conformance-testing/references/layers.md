@@ -199,6 +199,29 @@ The failure mode is what makes this worth a section: the mockup renders **unstyl
 Point the scanner at the mockups (Tailwind v4: `@source "../mockups";`), then **verify the utilities are in the built stylesheet before trusting a single finding** — grep the output for a handful of the classes the mockup uses. Measured cost on one project: 56.39 kB → 58.77 kB, about 0.5 kB gzipped, and most of it stops being mockup-only as the implementation adopts the same utilities.
 
 Serve the mockup from the **application's own origin** where you can. It sidesteps `file://` restrictions, keeps relative asset paths working, and on an embedded webview (Tauri, Electron) it is often the only navigation the host will allow at all. Copy the mockups into the build output as a test-build step rather than committing them to the product's public directory, so a design proposal never ships to users. Copy the stylesheet beside them under a **stable name** too — content-hashed filenames change every build, and a mockup linking a hashed file breaks silently into the unstyled case above.
+### The blind spot this layer cannot see out of — measured, 2026-08-23
+
+Rendering both sides in the same engine is what makes this layer diagnostic. It is also the exact reason it has one blind spot, and the blind spot is worth stating as a rule:
+
+> **A same-instrument comparison can prove that two things match. It can never prove that either one is correct.**
+
+The measured case. A Tailwind v4 project set its root font size to `14px` (a dense desktop app) and left `--spacing` at Tailwind's default of `.25rem`. `rem` resolves against the root, so every spacing utility in the application rendered at **87.5%** of the number written beside it: `p-6` was 21px, `h-8` 28px, `h-16` 56px. The design system documented a 4px grid; what shipped was a 3.5px grid.
+
+The DOM-to-DOM comparison ran against a committed mockup across three viewport widths and reported clean agreement on spacing throughout. It was right: **the mockup was authored in the same utilities, so both sides were wrong by the same eighth.** The diff was zero because the error was common-mode.
+
+The static source guard in the same project missed it for a different reason worth pairing with this one: it read *source*, where `h-14` is a clean multiple of 4 whatever it paints, and it rejected only arbitrary values like `h-[54px]`. Between the two instruments, one could not see past the shared authoring vocabulary and the other could not see past the source text.
+
+**What actually found it** was a human looking at a screenshot and noticing a header bar shorter than the number the plan quoted, then reading the built stylesheet. No automated check in the project was capable of it.
+
+**What to do about it.** Add a third check that reads the *declaration* rather than any rendered result — the scale's base unit, the root font size, the token definitions — because that is the only place a common-mode error is visible:
+
+```js
+// The scale base must be an ABSOLUTE unit. A rem here is silently rescaled by
+// whatever the root font size is, and every rendered comparison agrees anyway.
+if (!/--spacing\s*:\s*[\d.]+px/.test(themeCss)) fail("spacing scale not pinned");
+```
+
+More generally: whenever two artifacts are compared, ask what they *share* — an engine, a stylesheet, a component library, a token file, a code generator. Whatever they share is what the comparison is structurally unable to judge, and it needs its own check pointed at the shared thing itself.
 
 ---
 
