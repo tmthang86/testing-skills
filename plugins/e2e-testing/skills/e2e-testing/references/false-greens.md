@@ -14,6 +14,7 @@ understood, and each one had been green the whole time.
 - [3. Exit status is not the result](#3-exit-status-is-not-the-result)
 - [4. Fixtures that agree with the bug](#4-fixtures-that-agree-with-the-bug)
 - [5. A guard nobody has seen fail](#5-a-guard-nobody-has-seen-fail)
+- [6. The screenshot that photographed something else](#6-the-screenshot-that-photographed-something-else)
 - [The checklist](#the-checklist)
 
 ## 1. The test that never asserted
@@ -156,6 +157,76 @@ When a reversal is impractical — it needs a locked machine, or revoking a syst
 in the test's own documentation rather than implying the guard is proven. An honest "this one is
 reviewed by reading, not by reversal" is worth more than a checkmark.
 
+## 6. The screenshot that photographed something else
+
+Screen capture is the instrument people reach for when a check has to happen outside the page —
+first-paint behaviour, a native dialog, a focus ring, a theme flash. It has three failure modes, and
+all three return **exit 0 and a real PNG file**. Nothing in the artifact says which one you got.
+
+### 6a. The display was asleep, so every pixel is black
+
+A capture taken while the display sleeps or the session is locked succeeds and returns a uniformly
+black image. Read as a screenshot of the application, it says the window painted nothing.
+
+Measured: `screencapture -o -x out.png` → exit 0, a 3024×1964 PNG, every channel's extrema `(0, 0)`.
+The application was running normally the whole time.
+
+**The check is one line, and it belongs in the harness rather than in the reader's judgement:**
+
+```python
+extrema = Image.open(path).convert("RGB").getextrema()
+if all(lo == hi for lo, hi in extrema):
+    raise RuntimeError(f"uniform capture {extrema} — display asleep or locked, not evidence")
+```
+
+A uniform frame of *any* colour is the tell, not black specifically. Assert variance before you
+assert content.
+
+### 6b. The window was behind another application
+
+A capture loop that polls for the process — rather than for the *window being visible* — starts
+firing as soon as the pid exists. If anything else is frontmost, every frame is a photograph of that
+other application, sampled at coordinates that used to be inside your window.
+
+Measured: 24 frames captured during an application launch, every one returning pure white at both
+sample points. The frames were of a presentation tool behind the target. The relaunched window had
+also moved — `(136, 66) 1280×820` rather than where the previous run left it — so coordinates
+recorded from an earlier session pointed outside it.
+
+Two habits fix it, and the second matters more:
+
+- Query the window's real rectangle at capture time; never reuse coordinates across launches.
+- **Assert the target is frontmost, per capture, not once at the start.** Focus is lost between
+  events. A driver that refuses when its target is not frontmost — naming what *is* frontmost —
+  turns this from silent bad data into a failure you can read:
+
+  ```
+  driver: could not bring "myapp" to the front (frontmost is "Code") — refusing to send input
+  exit=1
+  ```
+
+### 6c. The camera is slower than the event
+
+This is the one that produces the most confident wrong conclusion, because the frames are genuine,
+the window is visible, and the transient simply never appears in any of them.
+
+Measured: 24 captures spanning 12.2 seconds — a cadence near **500 ms** — pointed at a
+theme-flash lasting perhaps one frame at 60 Hz, about **16 ms**. The instrument was roughly thirty
+times too slow to see what it was aimed at. "No flash observed across 24 frames" is not evidence
+that no flash occurred; it is evidence that this instrument cannot answer the question.
+
+**Do the arithmetic before running the loop.** Divide your capture cadence by the event's expected
+duration. If the ratio is not comfortably below 1, the loop cannot answer, and a faster loop usually
+cannot either — reach for an in-process instrument instead: a paint-timing mark, a recorded video at
+a known frame rate, or an assertion made from inside the application at the moment in question.
+
+### Why these are one case and not three
+
+All three end with a file on disk, a zero exit status, and a human concluding something. The shared
+defect is that **a capture's success says nothing about what it captured.** Every screenshot-based
+check needs its own guard: variance for 6a, a window rectangle plus a frontmost assertion for 6b,
+and cadence arithmetic for 6c.
+
 ## The checklist
 
 Before believing a green run:
@@ -168,3 +239,5 @@ Before believing a green run:
    real values?
 6. Has each guard been seen failing at least once?
 7. When did anyone last exercise the actual application, rather than the suite?
+8. If a check reads a screenshot: is the frame non-uniform, was the target frontmost when it was
+   taken, and is the capture cadence actually faster than the event being looked for?

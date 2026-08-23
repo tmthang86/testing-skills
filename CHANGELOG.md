@@ -16,6 +16,17 @@ ones.
   six ways exit status disagreed with output; a parser scoring 100% on a real
   corpus that lacked the one shape that breaks it; and guards nobody had ever
   seen fail
+- `references/false-greens.md` case 6 — **screen capture as a test instrument
+  has three failure modes that all return exit 0 and a real PNG**: a uniformly
+  black frame because the display slept (extrema `(0,0)` on every channel while
+  the app ran normally); 24 frames that photographed the application *behind*
+  the target, because the loop polled for the pid rather than for a visible
+  window, and because coordinates from an earlier launch pointed outside a
+  window that had moved to `(136,66) 1280×820`; and a capture cadence of ~500 ms
+  aimed at a ~16 ms one-frame transient — an instrument roughly thirty times too
+  slow, whose "nothing observed across 24 frames" says nothing about the event.
+  Each gets its own guard: variance, a window rectangle plus a per-capture
+  frontmost assertion, and cadence arithmetic done before the loop runs
 - `SKILL.md` gains a step 4, "before you believe a green run", and an
   anti-pattern for reporting a run as passing because it exited 0
 - `references/desktop.md` gains the WKWebView keyboard boundary: on macOS the
