@@ -2,9 +2,11 @@
 
 ## Table of contents
 - [Layer 1 — Token conformance](#layer-1--token-conformance)
+  - [The theme matrix](#the-theme-matrix)
 - [Layer 2 — Mockup comparison (DOM-to-DOM)](#layer-2--mockup-comparison-dom-to-dom)
 - [Layer 3 — Spec & flow coverage](#layer-3--spec--flow-coverage)
 - [Layer 4 — Visual regression baselines](#layer-4--visual-regression-baselines)
+- [Layer 5 — Semantic role conformance](#layer-5--semantic-role-conformance)
 - [Responsive: cuts across every layer](#responsive-cuts-across-every-layer)
 - [Accessibility conformance](#accessibility-conformance)
 - [Figma (optional)](#figma-optional)
@@ -47,6 +49,53 @@ Four things that decide whether this layer is useful or a maintenance sink:
 - **If the project has a design-system skill**, read it for the authoritative token values instead of guessing. That skill is the source of truth the humans use, so it should be the one the tests use.
 
 This scales best at the component level with Storybook: render every variant in isolation and token-check it, so one upstream token change is verified across the whole library at once.
+
+---
+
+### The theme matrix
+
+Everything above checks one element against one token set. As soon as the product ships **more than
+one theme** — light/dark, brands, density modes, high contrast — a second failure appears that
+per-element assertions are structurally blind to: **a token defined in one theme and missing from
+another.**
+
+Nothing breaks in the theme you develop in. Exactly one control breaks, in exactly one theme, and
+only when somebody switches to it. Per-element token tests do not catch it because they run in
+whichever theme the test happened to boot in, and the element they assert is not the one that
+regressed.
+
+So check the **contract** before checking any element: the union of token names any theme defines,
+and whether every theme covers it. Two shapes exist and they need different arithmetic:
+
+| Shape | Looks like | Contract is |
+|---|---|---|
+| **Peers** | `{ light: {...}, dark: {...} }`; Android `values/` vs `values-night/`; separate iOS appearance sets | The union across all themes |
+| **Base + override** | `:root` plus `:root[data-theme="dark"]`; a default `ThemeData` the variants copy and modify | The union across the **overrides** only |
+
+**Getting the second one wrong produces confident nonsense.** Treat the base as a peer and every
+token declared once — font stacks, radii, a sidebar width — is reported missing from every
+override, when at runtime it simply cascades. The signal drowns on the first run and the check gets
+switched off.
+
+**Why this layer is worth building even where the others thin out:** it reads the token *source*,
+not a rendered page. No browser, no device, no `getComputedStyle`. That makes it the one piece of
+Layer 1 that runs unchanged on iOS, Android, Flutter and native desktop — see `platforms.md`, where
+everything else in this layer degrades.
+
+```bash
+node scripts/check-theme-contract.mjs --css tokens.css          # base defaults to :root
+node scripts/check-theme-contract.mjs --json tokens.json --base ''   # peers
+node scripts/check-theme-contract.mjs --android app/src/main/res
+node scripts/check-theme-contract.mjs --self-test
+```
+
+**Two honest limits.** A colour declared only in the base and overridden by nobody is reported as an
+*advisory*, never a failure — it might be a deliberate invariant brand colour or a value the other
+themes never got, and structure cannot tell those apart. And with base+override and exactly **one**
+override, removing a token from that override merely shrinks the contract, so the check degrades to
+that same advisory. From the second override onward it fails precisely, naming the theme and the
+token. **It strengthens as the theme count grows** — which is when this defect starts to bite
+anyway.
 
 ---
 
@@ -131,6 +180,47 @@ Note this layer is **self-referential**: it verifies nothing changed since the l
 
 ---
 
+## Layer 5 — Semantic role conformance
+
+The first four layers ask whether a *component* matches its design. This one asks a question they
+never reach: **does this content get the treatment its kind requires?**
+
+Design systems routinely carry rules of the form *content of kind X is always rendered as Y*:
+
+- Measured values — sizes, durations, percentages, timestamps — set in tabular mono, so a column of
+  digits aligns and a fact does not look like prose.
+- Destructive actions always in the danger token, never merely bold.
+- Currency always at a fixed decimal precision with the same symbol placement.
+- Untrusted or user-supplied text always in the quoted style.
+
+No generic tool checks these, and the reason is worth understanding: **the tool cannot tell which
+content is which kind.** A conformance comparator sees a string in a `<span>`. It has no way to know
+that string is a byte count and therefore owes the mono face.
+
+**The technique: check at the producer, not at the element.** You usually cannot classify rendered
+text, but you can always find the code that *produced* it — a formatter, a currency helper, a typed
+`<Money>` component. Assert the treatment at every one of those call sites.
+
+| Platform | Producer | Assert |
+|---|---|---|
+| Web | `{formatBytes(n)}` in JSX | the enclosing element carries the data-type class, or its computed `fontFamily` is the mono stack |
+| SwiftUI | `Text(formatBytes(n))` | the view chain carries `.monospacedDigit()` or the data text style |
+| Compose | `Text(formatBytes(n))` | `style = Typography.data` |
+| Flutter | `Text(formatBytes(n))` | `style: theme.textTheme.dataValue` |
+
+**The allowlist is the point, not a concession.** Some producer output legitimately breaks the rule —
+a count interpolated into a sentence should not be mono. Those exceptions are real, so the check
+would be useless without a way to record them, and *dangerous* without a way to see them. Require
+every allowlist entry to name its reason, and read the list aloud at review time. An allowlist that
+has grown without anyone reading it is the same silent erosion the check was built to stop.
+
+**Build this when the design system states such a rule.** If it doesn't, skip the layer entirely —
+inventing role rules the designers never agreed is how a conformance suite acquires a reputation for
+pedantry. When the rule *is* stated, this is one of the cheapest layers here: the producer list is
+finite, usually a handful of functions, and a grep-level check catches most of it.
+
+---
+
 ## Responsive: cuts across every layer
 
 Everything above is viewport-dependent. A token assertion at 1440px says nothing about 375px; a mockup comparison is only meaningful against a mockup for *that* width. So each layer needs to be run per viewport rather than once.
@@ -158,6 +248,23 @@ test('@a11y trade screen has no accessibility violations', async ({ page }) => {
 ```
 
 Contrast ratios, focus order, ARIA roles, and target size are as much "does this match the design system" as color tokens are — and unlike most conformance checks, they have an objective external standard (WCAG) to appeal to.
+
+**One caveat on contrast, because the default tooling is measured against a simplification.** An
+automated checker pairs the declared foreground with the nearest *opaque ancestor* background. Two
+increasingly common situations defeat that:
+
+- **Ancestor opacity.** A parent at `opacity: 0.8` changes the composited colour of everything
+  inside it, while the computed style still reports the declared value. The reported ratio is not
+  the ratio a person sees.
+- **A backdrop that is not one colour.** Translucent chrome over a gradient, an image, a video, or a
+  platform material — iOS vibrancy, Android dynamic surfaces, macOS materials, web glassmorphism —
+  has *no single* backdrop colour, so no single ratio exists. Sample the lightest and darkest points
+  of what sits behind the element and **assert the worse of the two**; anything else reports a
+  number that happens to be true at one pixel.
+
+This is not theoretical fussiness. A palette can have every token individually above threshold and
+still fail on the surface each one actually binds to — which is why the measurement has to name the
+binding surface, not a nominal background.
 
 ---
 

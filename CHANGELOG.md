@@ -47,6 +47,24 @@ ones.
   breakpoint boundary probing, and layout-responsiveness detection
 - Responsive guidance: comparison needs a per-viewport reference, invariants
   don't
+- Layer 1 gains the **theme matrix**: assert every theme defines the same token
+  contract before asserting any element. Handles both theming shapes — peers
+  and base+override — because treating a CSS base block as a peer reports every
+  inherited structural token as missing from every override
+- `check-theme-contract.mjs`: source-level contract check for CSS custom
+  properties, JSON/JS token objects, and Android `values-*` directories. Reads
+  the token source rather than a rendered page, so it runs unchanged on mobile
+  and native desktop, where the rest of Layer 1 degrades
+- Layer 5 — **semantic role conformance**: assert content of a given kind gets
+  the treatment the design system assigns it (measured values in tabular mono,
+  destructive actions in the danger token), checked at the producer rather than
+  the element, with an allowlist whose entries must name their reason
+- Accessibility: contrast must be measured against the **binding surface** —
+  ancestor opacity composited in, and a non-uniform backdrop (gradient, image,
+  platform material) sampled at its worst point rather than assumed uniform
+- **Prove each check by reversal** — break the thing a check watches and confirm
+  it goes red. A `--self-test` proves the script's logic, not that the check is
+  pointed at your app correctly
 
 ### Repo
 - Marketplace + two plugin manifests

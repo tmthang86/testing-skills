@@ -1,6 +1,6 @@
 ---
 name: design-conformance-testing
-description: Verify that a built UI actually matches its design — design tokens, design system, HTML mockups, markdown UI/UX specs, Claude Design output, user flows, and optionally Figma. Covers design-token conformance, DOM-to-DOM mockup comparison, responsive checks across breakpoints and screen sizes, visual regression baselines, state and flow coverage, and accessibility conformance. Use whenever the user asks whether the implementation matches the design, mockup, spec, or design system; mentions design drift, visual regression, pixel diff, token conformance, or "does this look right"; wants to check spacing, color, typography, or layout against a source of truth; wants to verify responsiveness across viewports, breakpoints, resolutions, or mobile/tablet/desktop sizes; or wants to gate a PR on design fidelity. This is the design-fidelity layer and is distinct from functional E2E testing (does the flow work) — reach for the e2e-testing skill for that.
+description: Verify that a built UI actually matches its design — design tokens, design system, HTML mockups, markdown UI/UX specs, Claude Design output, user flows, and optionally Figma. Covers design-token conformance, DOM-to-DOM mockup comparison, responsive checks across breakpoints and screen sizes, visual regression baselines, state and flow coverage, and accessibility conformance. Use whenever the user asks whether the implementation matches the design, mockup, spec, or design system; mentions design drift, visual regression, pixel diff, token conformance, or "does this look right"; wants to check spacing, color, typography, or layout against a source of truth; ships multiple themes that must define the same tokens; wants to verify responsiveness across viewports, breakpoints, resolutions, or mobile/tablet/desktop sizes; or wants to gate a PR on design fidelity. This is the design-fidelity layer and is distinct from functional E2E testing (does the flow work) — reach for the e2e-testing skill for that.
 ---
 
 # Design Conformance Testing
@@ -28,12 +28,13 @@ If you can't find any artifact, say so and ask rather than fabricating expected 
 
 ## Step 2 — Pick the layers worth building
 
-Four layers, in ROI order. Don't reflexively build all four; each carries upkeep.
+Five layers, in ROI order. Don't reflexively build all five; each carries upkeep.
 
-1. **Token conformance** — assert computed styles equal design tokens. Cheap, deterministic, catches the most common real drift (someone hardcoded a value instead of using the system). **Build this whenever a design system exists.**
+1. **Token conformance** — assert computed styles equal design tokens. Cheap, deterministic, catches the most common real drift (someone hardcoded a value instead of using the system). **Build this whenever a design system exists.** If the product ships **more than one theme**, start with the *theme matrix* half of this layer: assert every theme defines the same token contract before asserting any element. A token present in one theme and missing from another breaks exactly one control in exactly that theme, which per-element assertions cannot see and which nobody notices until they switch. It reads the token source rather than a rendered page, so unlike the rest of this layer it works unchanged on mobile and native desktop.
 2. **Mockup comparison (DOM-to-DOM)** — render the HTML mockup and the implementation in the same engine, diff computed styles and geometry per element. Tells you *what* diverged, not just *that* something did. **Build this whenever an HTML mockup exists** — it's the highest-signal check available and the bundled script does the heavy lifting.
 3. **Spec & flow coverage** — derive scenarios and state coverage from the written spec: every designed state (empty, loading, error, permission-denied) and every designed branch in the user flow. Costs nothing but discipline; catches the states people quietly skip.
 4. **Visual regression baselines** — screenshot-vs-golden-image. Catches what no assertion enumerates (overlap, i18n text expansion, RTL breaks). Needs a human review seam, so add it once the higher layers are in place.
+5. **Semantic role conformance** — assert that content of a given *kind* gets the treatment the design system assigns it: measured values in tabular mono, destructive actions in the danger token, currency at a fixed precision. Generic tools never check these because they cannot tell which content is which kind — so check at the **producer** (the formatter, the currency helper) rather than at the element. Cheap when the system states such a rule; skip the layer entirely when it doesn't.
 
 **Responsive runs across all of them, not beside them.** Every layer above is viewport-dependent: a token check at 1440px says nothing about 375px, and a mockup comparison needs a mockup *for that width*. Two things follow. First, comparison checks only work where a per-viewport artifact exists. Second — and this is what makes responsive testing practical — **layout invariants need no artifact at all**: nothing overflows horizontally, nothing escapes the viewport, nothing designed collapsed to 0×0, touch targets are big enough. Those hold at every width by definition, so run them everywhere even when you only have one desktop mockup. That gap is where most real responsive bugs live. See `references/responsive.md` for viewport selection, breakpoint-boundary probing, and what to check.
 
@@ -71,7 +72,15 @@ FAIL | viewports: 3 | findings: 4 (high: 2)
     [high] primary-cta · paddingLeft: design=16px impl=24px (+8px)
 ```
 
-Verify the script's logic is intact in a new environment with `node scripts/compare-design.mjs --self-test` (runs without a browser). Then read `references/layers.md` for the other layers, `references/responsive.md` for viewport selection and breakpoint probing, and `references/platforms.md` for mobile and desktop.
+For a multi-theme product, run the source-level contract check alongside it — no browser or device needed, so it is the one conformance check that costs the same on every platform:
+
+```bash
+node scripts/check-theme-contract.mjs --css tokens.css              # base+override (CSS default)
+node scripts/check-theme-contract.mjs --json tokens.json --base ''  # peer themes
+node scripts/check-theme-contract.mjs --android app/src/main/res
+```
+
+Verify both scripts' logic is intact in a new environment with `--self-test` (runs without a browser). Then read `references/layers.md` for the other layers, `references/responsive.md` for viewport selection and breakpoint probing, and `references/platforms.md` for mobile and desktop.
 
 ## How to report findings
 
@@ -82,6 +91,14 @@ A conformance run produces *design bugs*, and they need routing that a functiona
 - **Whether it's drift or an intentional change.** This is a judgment call you often can't make alone. If the implementation looks deliberate, flag it as "implementation diverges from artifact — confirm which is correct." Sometimes the artifact is the stale one, and silently "fixing" the code to match an outdated mockup is worse than the drift.
 
 Never auto-update a baseline or auto-file a defect for every diff. Both convert signal into noise. A human decides whether a diff is a bug or an approved redesign.
+
+## Prove each check by reversal
+
+A conformance check that has only ever been seen passing has proved nothing — it may be asserting on an element it never found, in a theme it never loaded, against a token file it failed to parse. All three fail *green*.
+
+So before trusting any check, **break the thing it watches and confirm it goes red**: put a hardcoded colour back, delete a token from one theme, strip the data class off a size cell, shrink a touch target. One reversal per check, not one for the suite. A `--self-test` proves the script's own logic is intact; it says nothing about whether the check is pointed at your app correctly.
+
+This costs minutes once and is the difference between a suite that guards the design and a suite that reports success regardless of it.
 
 ## Honesty about scope
 

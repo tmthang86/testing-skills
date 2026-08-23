@@ -7,7 +7,7 @@
   "license": "MIT",
   "scripts": {
     "validate": "node scripts/validate-repo.mjs",
-    "test:unit": "node plugins/design-conformance-testing/skills/design-conformance-testing/scripts/compare-design.mjs --self-test",
+    "test:unit": "node plugins/design-conformance-testing/skills/design-conformance-testing/scripts/compare-design.mjs --self-test && node plugins/design-conformance-testing/skills/design-conformance-testing/scripts/check-theme-contract.mjs --self-test",
     "test:integration": "node scripts/integration-test.mjs",
     "test": "npm run validate && npm run test:unit && npm run test:integration",
     "setup": "npm install && npx playwright install chromium"
