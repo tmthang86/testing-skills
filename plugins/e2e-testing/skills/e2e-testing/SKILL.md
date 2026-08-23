@@ -58,6 +58,26 @@ The tooling differs but the workflow does not. Follow this every time:
 6. **Assert on outcomes, not UI mechanics.** "The dashboard shows the new order ID" is a real test; "the dropdown opened" is theater. Verify the product actually did the thing the user came to do.
 7. **Isolate state, then commit.** Each test should set up and tear down its own data so it can run alone, in any order, in parallel. Save the committed artifact (a `.spec.ts`, a `.yaml` flow) and, for CI, a report (JUnit XML) so failures are tracked rather than lost in a folder nobody reads after week one.
 
+## Step 4 — Before you believe a green run
+
+Step 3 ends with "run it and watch it fail for real reasons." The harder problem is the opposite
+one: **a test that runs, passes, and proves nothing.** A red test is information; a green test is
+information only if it could have been red.
+
+This is not a hypothetical failure mode for agent-written tests, it is the *characteristic* one. The
+setup steps are the interesting part to write, the assertion is one boring line at the end, and
+nothing complains when it is missing or vacuous. Measured examples, each of which sat green for
+weeks: nine `it()` blocks containing no `expect()` while the reporter said 8/8 passing; a search
+spec that waited for zero results and passed because the typing silently delivered nothing; a parser
+scoring 100% on a real corpus that lacked the one shape which breaks it.
+
+Read `references/false-greens.md` before handing over a suite, and at minimum:
+
+- Enforce "every `it()` contains an `expect()`" **as part of the test command**, not as optional lint.
+- Pair any assertion expecting *nothing* with proof that the action actually happened.
+- Read the **output**, not the exit status — they are different checks.
+- Prove each guard by reversal at least once: break what it protects, watch it go red, restore.
+
 ## Locator priority (all platforms)
 
 Resilient tests target what the *user* perceives, not how the DOM/view tree happens to be built today. In rough order of preference:
@@ -84,5 +104,6 @@ Resilient tests target what the *user* perceives, not how the DOM/view tree happ
 - Asserting UI mechanics ("modal opened") instead of outcomes ("record was saved").
 - Auto-filing a defect / opening a PR on every CI failure — that's noise, not signal. Gate it behind human confirmation.
 - Treating first-draft generated tests as final. They're a draft; validate with a real run before trusting them.
+- Reporting a run as passing because it exited 0. Read what it printed — a detached-task panic, a masked timeout, and a `$?` taken after a pipe all exit 0 (`references/false-greens.md`).
 
 Now read the reference for the platform you identified and follow it. If the work spans platforms, read each relevant reference and keep the tools cleanly separated.

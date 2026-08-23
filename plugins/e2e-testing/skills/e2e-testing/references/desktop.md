@@ -21,6 +21,8 @@ Principle that decides most cases: **prefer a tool that targets UI elements via 
 - [macOS: Hammerspoon](#macos-hammerspoon)
 - [Windows: UI Automation](#windows-ui-automation)
 - [Tauri](#tauri)
+- [The webview keyboard boundary (measured)](#the-webview-keyboard-boundary-measured)
+- [Building a native input driver](#building-a-native-input-driver)
 - [The loop (all desktop)](#the-loop-all-desktop)
 - [Reality check](#reality-check)
 
@@ -55,6 +57,104 @@ cargo install tauri-driver
 ```
 
 Drive it with a WebDriver client, or use the `mcp-tauri-automation` MCP server for natural-language control ("click submit and check the result") with instant screenshots for visual debugging. If the Tauri app also has native OS chrome (tray, native menus) outside the webview, combine with the OS tool above for those parts.
+
+**Before you write a keyboard test against it, read the next section.** On macOS the embedded
+WebDriver silently drops synthetic key events, which means an Enter-to-submit test, a Tab-order
+test, or a focus-ring test can run, pass, and have proven nothing.
+
+## The webview keyboard boundary (measured)
+
+Measured on macOS against a Tauri app's WKWebView, across three sequential runs and two different
+WebDriver delivery paths:
+
+| Action | Result |
+|---|---|
+| `browser.keys(["Enter"])` | no form submit |
+| Actions API `key.down("\uE007")` / `\uE004` | no submit, focus never left `document.body` |
+| Element-level `setValue(text)` | **works** |
+| `element.click()` | **works** |
+
+So text and clicks go in, and **keys do not**. The app is fine — a person pressing Return submits
+the form normally. The webview does not route WebDriver's synthetic key events.
+
+Three consequences, in increasing order of how much they cost:
+
+1. **A keyboard test written this way is a false green.** It runs, the page does not change, and
+   whatever it asserts about the unchanged page passes. See `false-greens.md`.
+2. **`:focus-visible` cannot be tested from inside the page at all.** The selector depends on *how*
+   focus was caused, not merely that it was. A `focus()` call from script satisfies `:focus` and can
+   never satisfy `:focus-visible`. No in-page technique substitutes; only an interaction the OS
+   itself classified as keyboard will do.
+3. **The finding does not generalise to the app.** This is a fact about the *WebDriver channel*.
+   Keys posted to the OS input layer reach the same webview normally. Carrying "synthetic keys don't
+   work" over to "this app can't be driven from outside" is an easy and expensive mistake — in the
+   project this was measured on, it produced a bug report that was simply wrong, written by reading
+   the source instead of pressing a key.
+
+**The fix is a split: input from outside, assertions from inside.** Deliver keys as real OS events;
+keep reading state through WebDriver, which is good at exactly that. Each channel used for what it
+can actually do.
+
+## Building a native input driver
+
+If you take the split above, you will write a small helper that posts OS-level keyboard and mouse
+events. It is perhaps 200 lines. Six things will bite you, and all six were paid for:
+
+**1. Input goes to whatever is frontmost — not to a window you have a handle on.** The OS event tap
+has no notion of a target. During development, a URL and a Return were delivered to an unrelated
+application because the app under test had quietly lost focus. **Check that your app is frontmost
+before every event, not once at startup** — focus is lost *between* events, which is how that
+happened — and refuse to send when it is not. Make the refusal loud and non-zero.
+
+**2. Two processes can share the app's name.** A debug build launched by the test runner and a
+release build the developer has open are both called the same thing. A driver that resolves the
+target by name and takes the first match will send input to one process while every assertion reads
+the other. It surfaces as a spec failing with "the field holds 0 characters" and then passing when
+run alone — which looks exactly like flake and is not. **Refuse when more than one process matches,
+name the pids, and accept an explicit pid to disambiguate.**
+
+**3. An input method can swallow every key.** With a Vietnamese IME active (Telex), keys posted to
+the macOS HID event tap never reached the app: the input method sits between the tap and the
+application. Mouse events were unaffected, which makes it genuinely confusing — clicks land, focus
+rings appear, a caret blinks in the field, and no text arrives. **Post directly to the target
+process** (`CGEvent.postToPid` on macOS), which delivers downstream of the input method. The
+alternative — switching the input source to a Latin layout and back — mutates a global setting that
+stays wrong if the run dies. Note this is a *second* IME hazard: some older tools refuse outright
+under a non-Latin layout, which at least tells you. This one fails silently.
+
+**4. A locked screen is not a slow machine.** Input cannot be delivered into a locked session, and
+on macOS a video window cannot open in one either — `CVDisplayLink` is unavailable and media
+backends stop there without erroring. **Detect it and refuse with that reason**
+(`CGSSessionScreenIsLocked`), because the frontmost check would otherwise refuse with a message
+about focus and send the reader looking in the wrong place. **Display sleep is fine** — the session
+is still active; only locking breaks it.
+
+**5. A short-lived CLI helper reads stale system state.** Both "is this app active" and "who is
+frontmost" are cached and refresh on the run loop. A helper process that activates an app, sleeps,
+and then asks will be told the activation failed when it succeeded. **Service the run loop between
+the action and the observation**, and poll rather than sleeping once.
+
+**6. Coordinates go stale between one command and the next.** Windows move — between displays, and
+after a dev-server reload. Header elements slide sideways as breadcrumbs grow. A click at a
+remembered position lands on the wrong element, and every keystroke after it then measures the wrong
+thing, which reads exactly like a dropped key. **Re-read the window bounds before every click**, and
+confirm focus in a screenshot before believing a keyboard result.
+
+Two more things worth knowing once you have it working:
+
+**`document.body` is the tab-cycle boundary, not a tab stop.** Tabbing past the last focusable
+element takes focus out of the document for exactly one press, and `document.activeElement` reads as
+`body`. A walk that records every reading ends with a phantom stop that has no focus ring — because
+nothing is focused — and reports it as an accessibility defect. Skip the boundary, and keep an
+assertion that the walk found more than one real stop, so a channel that delivers nothing still
+fails.
+
+**Your test suite can damage the developer's running app.** Two shapes seen: a cleanup hook running
+`pkill` by executable name, which matches the release build the developer has open; and a test that
+signs out through the real control, deleting a keychain item the shipped app deliberately shares
+with the test build. Both are correct in isolation and destructive together. If your suite does
+either, say so in the guide — an app that appears to forget its login on its own is a bug report
+filed against the wrong component.
 
 ## The loop (all desktop)
 

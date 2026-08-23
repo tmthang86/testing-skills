@@ -61,9 +61,11 @@ plugins/
     skills/e2e-testing/
       SKILL.md                      platform router + universal loop
       references/
+        false-greens.md             how a suite passes while proving nothing — measured cases
         web-playwright.md           Playwright CLI+Skill vs MCP, POM, auth, flake, CI
         mobile-maestro.md           Maestro (primary), Appium fallback
-        desktop.md                  Electron/Tauri, Hammerspoon, Windows UIA, computer use
+        desktop.md                  Electron/Tauri, Hammerspoon, Windows UIA, computer use,
+                                    the WKWebView keyboard boundary, native input drivers
   design-conformance-testing/
     skills/design-conformance-testing/
       SKILL.md                      source-of-truth routing + the four layers
@@ -125,6 +127,7 @@ Honest state, so nobody trusts more than is warranted:
 | | Status |
 |---|---|
 | Skill content | Drafted, reviewed, structurally valid |
+| `false-greens.md` and the desktop native-input material | **Measured**, on one real Tauri app over about a week — not researched. Every case in them was observed, and the numbers are the observed ones |
 | Comparator pure logic | **Verified** — 33 self-tests |
 | Comparator browser path | Written; verified by CI on every push, not yet exercised against a real app |
 | Skill triggering accuracy | **Not measured** |
