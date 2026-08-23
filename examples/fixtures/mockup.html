@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<!--
+  Design artifact fixture — the "mockup" side of the comparison.
+  Kept deliberately plain so the expected computed values are obvious and the
+  integration test stays readable. impl.html mirrors this structure with
+  documented, intentional drifts.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Design mockup</title>
+<style>
+  :root {
+    --color-primary: rgb(10, 132, 255);
+    --color-text: rgb(28, 28, 30);
+    --space-4: 16px;
+    --radius-md: 8px;
+    --font-body: Arial, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { font-family: var(--font-body); color: var(--color-text); padding: 0; }
+
+  .card {
+    padding: var(--space-4);
+    border-radius: var(--radius-md);
+    background: rgb(255, 255, 255);
+    border: 1px solid rgb(229, 229, 234);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+  .cta {
+    background: var(--color-primary);
+    color: rgb(255, 255, 255);
+    border: 0;
+    border-radius: var(--radius-md);
+    padding: 12px var(--space-4);
+    font-family: var(--font-body);
+    font-size: 14px;
+    min-height: 44px;
+  }
+  .icon-btn {
+    width: 44px; height: 44px;
+    border: 0; border-radius: var(--radius-md);
+    background: rgb(242, 242, 247);
+  }
+  /* The table is allowed to scroll inside its own container rather than
+     pushing the page wide — this is the behaviour impl.html gets wrong. */
+  .table-wrap { max-width: 100%; overflow-x: auto; }
+  .table { width: 100%; min-width: 0; }
+</style>
+</head>
+<body>
+  <div class="card" data-testid="card">
+    <h1 data-testid="title" style="font-size:20px;">Orders</h1>
+    <div class="table-wrap" data-testid="table-wrap">
+      <div class="table" data-testid="order-table">VN30F2601 &middot; 1 &middot; Filled</div>
+    </div>
+    <button class="cta" data-testid="primary-cta">Place order</button>
+    <button class="icon-btn" data-testid="icon-btn">&#9776;</button>
+  </div>
+</body>
+</html>

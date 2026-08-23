@@ -1,0 +1,18 @@
+{
+  "name": "testing-skills",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Claude Code agent skills for functional E2E testing and design conformance testing.",
+  "license": "MIT",
+  "scripts": {
+    "validate": "node scripts/validate-repo.mjs",
+    "test:unit": "node plugins/design-conformance-testing/skills/design-conformance-testing/scripts/compare-design.mjs --self-test",
+    "test:integration": "node scripts/integration-test.mjs",
+    "test": "npm run validate && npm run test:unit && npm run test:integration",
+    "setup": "npm install && npx playwright install chromium"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0"
+  }
+}

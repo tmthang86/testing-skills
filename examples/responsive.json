@@ -1,0 +1,20 @@
+{
+  "impl": "http://localhost:3000/trade",
+  "tolerance": 1,
+  "breakpoints": [768, 1024],
+  "viewports": [
+    {
+      "name": "mobile",
+      "width": 375,
+      "height": 812,
+      "mockup": "file:///absolute/path/to/mockups/trade.mobile.html"
+    },
+    { "name": "tablet", "width": 768, "height": 1024 },
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900,
+      "mockup": "file:///absolute/path/to/mockups/trade.desktop.html"
+    }
+  ]
+}

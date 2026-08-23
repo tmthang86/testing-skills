@@ -1,0 +1,9 @@
+{
+  "name": "design-conformance-testing",
+  "description": "Verify a built UI matches its design: tokens, mockups, responsive behaviour, visual baselines, and accessibility.",
+  "version": "0.1.0",
+  "license": "MIT",
+  "author": {
+    "name": "Thang Tran"
+  }
+}

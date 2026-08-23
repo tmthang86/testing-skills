@@ -1,0 +1,9 @@
+{
+  "name": "e2e-testing",
+  "description": "Functional end-to-end UI testing across web, desktop, and mobile using the recommended tooling per platform.",
+  "version": "0.1.0",
+  "license": "MIT",
+  "author": {
+    "name": "Thang Tran"
+  }
+}

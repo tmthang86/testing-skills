@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<!--
+  Implementation fixture — the "impl" side, with deliberate faults so the
+  integration test has known-correct expectations to assert against.
+
+  Intentional drifts vs mockup.html:
+    1. .card padding  24px instead of 16px   -> spacing diff, high severity
+    2. .card radius   4px  instead of 8px    -> shape diff, medium severity
+    3. .cta color     rgb(0,122,255) not rgb(10,132,255) -> color diff, high
+    4. .table fixed 420px with no scroll container -> horizontal overflow and
+       an element escaping the viewport at 375px width (both high)
+    5. .icon-btn 24x24 instead of 44x44      -> touch-target finding at mobile
+
+  Everything else is intentionally identical, so any finding outside this list
+  is a bug in the comparator, not in the fixture.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Implementation</title>
+<style>
+  :root {
+    --color-text: rgb(28, 28, 30);
+    --font-body: Arial, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { font-family: var(--font-body); color: var(--color-text); padding: 0; }
+
+  .card {
+    padding: 24px;              /* drift 1: should be 16px */
+    border-radius: 4px;         /* drift 2: should be 8px */
+    background: rgb(255, 255, 255);
+    border: 1px solid rgb(229, 229, 234);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .cta {
+    background: rgb(0, 122, 255); /* drift 3: should be rgb(10,132,255) */
+    color: rgb(255, 255, 255);
+    border: 0;
+    border-radius: 4px;
+    padding: 12px 16px;
+    font-family: var(--font-body);
+    font-size: 14px;
+    min-height: 44px;
+  }
+  .icon-btn {
+    width: 24px; height: 24px;  /* drift 5: below the 44px touch minimum */
+    border: 0; border-radius: 4px;
+    background: rgb(242, 242, 247);
+  }
+  .table-wrap { max-width: 100%; }  /* drift 4: lost overflow-x: auto */
+  .table { width: 420px; }          /* drift 4: fixed width forces overflow */
+</style>
+</head>
+<body>
+  <div class="card" data-testid="card">
+    <h1 data-testid="title" style="font-size:20px;">Orders</h1>
+    <div class="table-wrap" data-testid="table-wrap">
+      <div class="table" data-testid="order-table">VN30F2601 &middot; 1 &middot; Filled</div>
+    </div>
+    <button class="cta" data-testid="primary-cta">Place order</button>
+    <button class="icon-btn" data-testid="icon-btn">&#9776;</button>
+  </div>
+</body>
+</html>
