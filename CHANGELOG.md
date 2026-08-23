@@ -4,6 +4,30 @@
 
 Initial draft of both skills.
 
+### design-conformance-testing — the cascade layer that silences a whole utility family
+
+Contributed after the largest measured miss on the same Tauri desktop app.
+
+- `references/layers.md`, Layer 1 gains "The cascade layer that silences a whole
+  utility family". Every `p-*`, `px-*`, `py-*` and `m-*` in a Tailwind v4
+  application computed to 0px for an entire milestone: a stylesheet opened with
+  a top-level `* { margin: 0; padding: 0 }`, and an unlayered declaration beats
+  a layered one outright — specificity is never consulted across that boundary.
+  Two properties make it worth its own section. `gap` is untouched by a
+  universal reset, so a probe sampling only `gap` would have been green
+  throughout. And every cheap check reports healthy: the source guard, the
+  spacing variable, the same declaration applied inline, and the built
+  stylesheet were all correct, because the failure is in the relationship
+  between two correct halves. The section carries the rendered probe that sees
+  it, including the kebab-case detail that silently fails every probe written
+  with `getPropertyValue("paddingTop")`.
+- The section closes on the non-technical half: a DOM-to-DOM comparison had been
+  reporting the defect at every phase boundary and was discounted each time by a
+  header sentence, written before any evidence existed, saying the mockup was
+  "the likelier stale one". Advisory-mode comparisons need a stated rule for
+  when a finding must be confirmed against the running app rather than reasoned
+  about.
+
 ### design-conformance-testing — tokens that are set and do nothing
 
 Contributed after a measured miss on the same Tauri desktop app.

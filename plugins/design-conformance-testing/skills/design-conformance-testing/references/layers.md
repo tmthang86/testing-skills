@@ -5,6 +5,7 @@
   - [The theme matrix](#the-theme-matrix)
   - [What drift actually looks like — one measured case](#what-drift-actually-looks-like--one-measured-case)
   - [The token that is set and does nothing: framework alias indirection](#the-token-that-is-set-and-does-nothing-framework-alias-indirection)
+  - [The cascade layer that silences a whole utility family](#the-cascade-layer-that-silences-a-whole-utility-family)
   - [Assert the promise, not the mechanism](#assert-the-promise-not-the-mechanism)
 - [Layer 2 — Mockup comparison (DOM-to-DOM)](#layer-2--mockup-comparison-dom-to-dom)
 - [Layer 3 — Spec & flow coverage](#layer-3--spec--flow-coverage)
@@ -174,6 +175,67 @@ the scope's own tokens:
 
 **Check for this whenever tokens are scoped below `:root`.** It is not specific to Tailwind: any
 layer that renames your tokens into its own namespace on `:root` has the same property.
+
+### The cascade layer that silences a whole utility family
+
+The worst token failure this document has a measured case for is not a wrong
+value. It is a correct value that never applies.
+
+Measured on a Tailwind v4 project: every `p-*`, `px-*`, `py-*` and `m-*` in the
+application computed to **0px** for an entire milestone, because a stylesheet
+opened with
+
+```css
+* { margin: 0; padding: 0; box-sizing: border-box; }
+```
+
+written at the top level, in no cascade layer. Tailwind emits its utilities into
+`@layer utilities`. **An unlayered declaration beats a layered one outright —
+specificity is never consulted across that boundary.** A bare `*` at (0,0,0)
+therefore beat `.p-2` at (0,1,0) on every element in the tree.
+
+Two properties of this failure make it worth its own section.
+
+**`gap` survives.** A universal reset sets `margin` and `padding` and nothing
+else, so flex and grid spacing kept working perfectly. The screens looked
+cramped rather than broken, and — the part that matters for writing the check —
+**a conformance probe that sampled only `gap` would have been green from the
+first day to the last.** Sample the families a reset touches, not the one you
+reach for first.
+
+**Every cheap check reports healthy.** In the measured case:
+
+- the source-reading guard was correct and irrelevant: `py-2` is on the 4px grid
+  whatever it paints;
+- the spacing variable was right and inherited correctly to every element, so
+  reading the token from the failing element proved nothing;
+- the same declaration applied INLINE rendered the right number, so the engine,
+  the variable and the arithmetic were all fine;
+- the built stylesheet was correct — `.p-2{padding:calc(var(--spacing) * 2)}`
+  and `--spacing:4px` both present. Reading the CSS was not enough, because both
+  halves are right and the failure is in the relationship between them.
+
+The check that sees it is a rendered measurement and nothing cheaper:
+
+```js
+const el = document.createElement("div");
+el.className = "p-2";
+document.body.appendChild(el);
+// kebab-case: getPropertyValue answers camelCase with "" rather than an error,
+// which fails every probe for a reason unrelated to the app
+const got = getComputedStyle(el).getPropertyValue("padding-top");
+expect(got).toBe("8px");
+```
+
+**And the reason it survived a whole milestone is not technical.** A DOM-to-DOM
+mockup comparison had been reporting it at every phase boundary — the nav item
+at 19px against the mockup's 40px, the footer bar at 20px against 56px. It was
+not acted on because the harness's own header said the mockup was "the likelier
+stale one", and every reading of the report was filtered through that sentence.
+A worklist that is habitually explained away is not a worklist. If you ship a
+comparison in advisory mode, pair it with a rule for when a finding must be
+*confirmed against the running app* rather than reasoned about — geometry that
+differs by more than a token step is a good trigger.
 
 ### Assert the promise, not the mechanism
 
