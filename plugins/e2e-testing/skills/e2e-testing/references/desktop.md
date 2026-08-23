@@ -122,23 +122,37 @@ alternative — switching the input source to a Latin layout and back — mutate
 stays wrong if the run dies. Note this is a *second* IME hazard: some older tools refuse outright
 under a non-Latin layout, which at least tells you. This one fails silently.
 
-**4. A locked screen is not a slow machine — and a sleeping display is a locked screen.** Input
-cannot be delivered into a locked session, and on macOS a video window cannot open in one either:
-`CVDisplayLink` is unavailable and media backends stop there without erroring. **Detect it and
-refuse with that reason** (`CGSSessionScreenIsLocked`), because the frontmost check would otherwise
-refuse with a message about focus and send the reader looking in the wrong place.
+**4. A locked screen blocks less than you think — and it is easy to conclude the wrong thing
+twice.** Measured on macOS with the display asleep and `CGSSessionScreenIsLocked` true:
 
-The part that is counter-intuitive, and that an earlier draft of this file got wrong: **putting the
-display to sleep locks the session immediately**, even when the machine is configured to wait hours
-before demanding a password. Measured — `pmset displaysleepnow` on a machine whose screen-lock delay
-was set to 28,800 seconds produced `CGSSessionScreenIsLocked = true` at once, and with that check
-bypassed the frontmost application became `loginwindow`. That delay governs only whether a
-*password* is demanded on wake; it does not keep the session drivable in the meantime.
+| Capability | Locked session |
+|---|---|
+| Keys delivered with `postToPid` — text and `Tab` | **works**, identically to awake |
+| Focus movement through the tab order | **works** — a 30-stop walk completed |
+| A spec asserting on DOM content and state | **passes** |
+| `:focus-visible` semantics | **fails** — the outline falls back to the OS default ring |
+| Coordinate-addressed clicks | **fail** — `loginwindow` holds the front |
+| Screen capture | **fails** — returns a blank image |
+| Video windows (`CVDisplayLink`) | **fail** — the backend stops without erroring |
 
-So an unattended suite that uses native input needs the **display awake**, not merely the machine
-awake — schedule around the display-sleep timer, or hold it off for the duration of the run
-(`caffeinate -d` on macOS). Whether disabling screen lock outright makes a sleeping display drivable
-is untested here; it is a security setting and belongs to whoever owns the machine.
+The asymmetry has one cause: `postToPid` addresses the *process*, so it does not care who is
+frontmost, while a click addresses a *screen coordinate* and therefore does. And `:focus-visible`
+depends on the engine classifying the interaction as keyboard, which it will not do while the window
+is not key — so keys arrive while focus *appearance* does not follow.
+
+**Two conclusions were reached here before the right one, and both were reached without running
+anything.** First: "display sleep is fine, only an explicit lock matters" — reasoned from the
+session still being active. Second, after `pmset displaysleepnow` made the driver refuse: "a locked
+session cannot be driven at all" — inferred from *the driver's own guard refusing*, which is not the
+same as input failing. Only the third attempt bypassed the guard and actually typed.
+
+**The design consequence:** apply a frontmost requirement to clicks, not to keys. A guard written for
+one delivery mechanism quietly becomes a false constraint when the mechanism changes, and here it
+was blocking precisely the unattended overnight case the suite was built for.
+
+**Also worth knowing:** the screen locks the moment the display sleeps, whatever the screen-lock
+*password* delay says. A machine set to 28,800 s still reported `CGSSessionScreenIsLocked = true`
+immediately; that delay governs only whether a password is demanded on wake.
 
 **5. A short-lived CLI helper reads stale system state.** Both "is this app active" and "who is
 frontmost" are cached and refresh on the run loop. A helper process that activates an app, sleeps,
