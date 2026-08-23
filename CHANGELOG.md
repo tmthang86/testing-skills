@@ -104,6 +104,12 @@ ones.
   spread to three files; the others now point at it
 - The measured px-literal figures now carry the exact grep that produced them
 
+- Corrected: "layout invariants need no artifact" is true about *artifacts* and
+  was read as true about *test ids*. `compare-design.mjs` anchors per-element
+  invariants to tracked elements and exits with "nothing to track" on an
+  untagged page — found by running invariants-only against an untagged mockup,
+  which is the first thing a reader following that line will do
+
 ### Repo
 - Marketplace + two plugin manifests
 - `validate-repo.mjs` for frontmatter, cross-references, manifest consistency

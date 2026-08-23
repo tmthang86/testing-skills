@@ -36,7 +36,7 @@ Five layers, in ROI order. Don't reflexively build all five; each carries upkeep
 4. **Visual regression baselines** — screenshot-vs-golden-image. Catches what no assertion enumerates (overlap, i18n text expansion, RTL breaks). Needs a human review seam, so add it once the higher layers are in place.
 5. **Semantic role conformance** — assert that content of a given *kind* gets the treatment the design system assigns it: measured values in tabular mono, destructive actions in the danger token, currency at a fixed precision. Generic tools never check these because they cannot tell which content is which kind — so check at the **producer** (the formatter, the currency helper) rather than at the element. Cheap when the system states such a rule; skip the layer entirely when it doesn't.
 
-**Responsive runs across all of them, not beside them.** Every layer above is viewport-dependent: a token check at 1440px says nothing about 375px, and a mockup comparison needs a mockup *for that width*. Two things follow. First, comparison checks only work where a per-viewport artifact exists. Second — and this is what makes responsive testing practical — **layout invariants need no artifact at all**: nothing overflows horizontally, nothing escapes the viewport, nothing designed collapsed to 0×0, touch targets are big enough. Those hold at every width by definition, so run them everywhere even when you only have one desktop mockup. That gap is where most real responsive bugs live. See `references/responsive.md` for viewport selection, breakpoint-boundary probing, and what to check.
+**Responsive runs across all of them, not beside them.** Every layer above is viewport-dependent: a token check at 1440px says nothing about 375px, and a mockup comparison needs a mockup *for that width*. Two things follow. First, comparison checks only work where a per-viewport artifact exists. Second — and this is what makes responsive testing practical — **layout invariants need no artifact at all**: nothing overflows horizontally, nothing escapes the viewport, nothing designed collapsed to 0×0, touch targets are big enough. Those hold at every width by definition, so run them everywhere even when you only have one desktop mockup. **No artifact is not the same as no test ids** — the per-element invariants have to be anchored to something, so the bundled script needs at least one `data-testid` on the page and exits without running when it finds none. Tagging the handful of elements you care about is the price of entry for this layer, and it is the same tagging Layer 2 will need later. That gap is where most real responsive bugs live. See `references/responsive.md` for viewport selection, breakpoint-boundary probing, and what to check.
 
 Accessibility conformance runs alongside all of these — see `references/layers.md`.
 
@@ -55,7 +55,7 @@ node scripts/compare-design.mjs \
   --mockup file:///abs/mockups/trade.desktop.html \
   --impl http://localhost:3000/trade --viewport 1440x900
 
-# Invariants only — no design artifact needed, still finds real bugs
+# Invariants only — no design artifact needed (page still needs data-testids)
 node scripts/compare-design.mjs --impl http://localhost:3000/trade \
   --viewports 375x812,768x1024,1440x900
 ```

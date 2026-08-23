@@ -70,7 +70,7 @@ Config-driven sweep, with mockups where they exist:
 node scripts/compare-design.mjs --config responsive.json --out report.json
 ```
 
-Invariants only, when no design artifact exists yet — still valuable, and the fastest way to find real bugs on day one:
+Invariants only, when no design artifact exists yet — still valuable, and the fastest way to find real bugs on day one. **The page still needs at least one `data-testid`**: per-element invariants are anchored to tracked elements, so an untagged page exits with "nothing to track" rather than reporting a clean sweep. Measured against an untagged HTML mockup, which is exactly the shape of page a reader is likeliest to try first:
 
 ```bash
 node scripts/compare-design.mjs \
