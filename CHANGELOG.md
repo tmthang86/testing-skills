@@ -4,6 +4,39 @@
 
 Initial draft of both skills.
 
+### design-conformance-testing — tokens that are set and do nothing
+
+Contributed after a measured miss on the same Tauri desktop app.
+
+- `references/layers.md`, Layer 1 gains "The token that is set and does nothing:
+  framework alias indirection". A design system scoping tokens below `:root` —
+  a theme preview, an inverted panel — meets this and it fails silently:
+  Tailwind v4's `@theme` maps `--color-ink-900: var(--ink-900)` inside `:root`,
+  a `var()` is substituted at the element that declares it, and descendants
+  inherit a finished colour. Redefining the underlying token on a subtree
+  changes nothing until the framework's alias keys are re-declared inside the
+  scope. Not Tailwind-specific: any layer that renames tokens into its own
+  namespace on `:root` behaves the same way.
+- Layer 1 also gains "Assert the promise, not the mechanism". The measured case
+  shipped green: the spec asserted a `data-theme` attribute had changed, and it
+  had, while the five cards that attribute was supposed to repaint rendered
+  pixel-identical. An attribute, a class name and a data hook are inputs to
+  rendering, not evidence of it. The assertion that states the claim compares
+  computed colours and reverses cleanly to `Expected: 5, Received: 1`. Found,
+  again, by a person reading a screenshot and disagreeing with a green suite.
+
+### e2e-testing — a delete that succeeds is not evidence the right thing was deleted
+
+- `SKILL.md` gains the reset-hygiene section. A suite that clears state before
+  it runs is making a claim it rarely checks. Measured: a reset script deleted
+  WKWebView's `WebsiteData/LocalStorage` — a directory that exists and is empty
+  — while the real store sat under `WebsiteData/Default/<salt>/<salt>/`, values
+  in UTF-16. Six runs, a successful-delete log each time, and every spec after
+  it running on inherited state. The close is to read the state back through a
+  different door than the one that wrote it. The write side has the same
+  asymmetry: a lazy flush loses the value if the process exits promptly, so poll
+  for it to land — 2 failures in 14 runs before, 10 of 10 after.
+
 ### design-conformance-testing — the blind spot in DOM-to-DOM comparison
 
 Contributed after a measured miss on the same Tauri desktop app.

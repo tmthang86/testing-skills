@@ -3,6 +3,9 @@
 ## Table of contents
 - [Layer 1 — Token conformance](#layer-1--token-conformance)
   - [The theme matrix](#the-theme-matrix)
+  - [What drift actually looks like — one measured case](#what-drift-actually-looks-like--one-measured-case)
+  - [The token that is set and does nothing: framework alias indirection](#the-token-that-is-set-and-does-nothing-framework-alias-indirection)
+  - [Assert the promise, not the mechanism](#assert-the-promise-not-the-mechanism)
 - [Layer 2 — Mockup comparison (DOM-to-DOM)](#layer-2--mockup-comparison-dom-to-dom)
 - [Layer 3 — Spec & flow coverage](#layer-3--spec--flow-coverage)
 - [Layer 4 — Visual regression baselines](#layer-4--visual-regression-baselines)
@@ -134,6 +137,68 @@ Two things follow for how you pitch this layer:
   ```
  It is the cheapest possible opening
   measurement for a conformance engagement, and it produces a number a team can act on.
+
+### The token that is set and does nothing: framework alias indirection
+
+A design system that scopes tokens per-subtree — a theme preview, an inverted panel, a card that
+advertises a palette the page is not currently using — will meet this, and it fails **silently and
+convincingly**.
+
+Utility frameworks map their own keys onto your tokens. Tailwind v4 does it in `@theme`:
+
+```css
+@theme {
+  --color-ink-900: var(--ink-900);   /* compiles into :root */
+}
+```
+
+A `var()` is substituted **at the element that declares it**. `--color-ink-900` therefore resolves
+against the *root's* `--ink-900`, and descendants inherit a finished colour. So this does nothing:
+
+```html
+<div data-palette data-theme="amber">   <!-- redefines --ink-900 for its subtree -->
+  <div class="bg-ink-900">…</div>       <!-- still reads the ROOT's resolved colour -->
+</div>
+```
+
+The subtree's tokens are correct. Every attribute is correct. Nothing renders differently. The fix
+is to re-declare the framework's alias keys inside the scope, where the substitution happens against
+the scope's own tokens:
+
+```css
+[data-palette] {
+  --color-ink-900: var(--ink-900);
+  /* …one line per colour key… */
+}
+```
+
+**Check for this whenever tokens are scoped below `:root`.** It is not specific to Tailwind: any
+layer that renames your tokens into its own namespace on `:root` has the same property.
+
+### Assert the promise, not the mechanism
+
+The measured case above shipped with a passing test. The spec clicked a theme card and asserted the
+document's `data-theme` attribute had changed — and it had. Five cards that were supposed to preview
+five different palettes rendered **pixel-identical**, and the suite was green, because the assertion
+was pointed at the mechanism the feature uses rather than at the thing the feature promises.
+
+The promise was "each card looks like the palette it offers." The assertion that states it is a
+comparison of **computed colours**:
+
+```js
+const grounds = await page.$$eval('[data-palette]', els =>
+  els.map(el => getComputedStyle(el).backgroundColor));
+expect(new Set(grounds).size).toBe(grounds.length);   // five cards, five colours
+```
+
+Reversal on that assertion reports `Expected: 5, Received: 1` — which is the defect, named. The
+attribute check cannot report it at all.
+
+The general form is worth carrying into every layer of this document: **an attribute, a class name
+and a data hook are inputs to rendering, not evidence of it.** If the claim is visual, the assertion
+has to read something the renderer produced. What actually found this one was a person looking at a
+screenshot and disagreeing with a green suite — the same ending as the blind-spot case in Layer 2,
+one layer up.
 
 ---
 

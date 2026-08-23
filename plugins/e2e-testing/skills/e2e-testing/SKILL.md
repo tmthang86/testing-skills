@@ -107,3 +107,41 @@ Resilient tests target what the *user* perceives, not how the DOM/view tree happ
 - Reporting a run as passing because it exited 0. Read what it printed — a detached-task panic, a masked timeout, and a `$?` taken after a pipe all exit 0 (`references/false-greens.md`).
 
 Now read the reference for the platform you identified and follow it. If the work spans platforms, read each relevant reference and keep the tools cleanly separated.
+
+
+## A delete that succeeds is not evidence the right thing was deleted
+
+A suite that resets state before it runs — deleting a preferences file, clearing a store, dropping a
+database — is making a claim it almost never checks: that the state is now actually gone.
+
+Measured case, on a Tauri/WKWebView desktop app. The reset script deleted
+
+```
+~/Library/WebKit/<name>/WebsiteData/LocalStorage
+```
+
+which **exists**, is **empty**, and holds nothing. The real store is
+
+```
+~/Library/WebKit/<name>/WebsiteData/Default/<salt>/<salt>/LocalStorage/localstorage.sqlite3
+```
+
+salted per origin, with values written as **UTF-16** — so a first attempt to confirm the data on
+disk with `grep` for an ASCII string also reported it absent while it sat two directories away.
+
+The script logged a successful delete on every one of six measured runs. Nothing was red. Every spec
+after the reset was running against inherited state while the log said otherwise, which is worse
+than having no reset at all: a suite that knows it starts dirty is honest, and one that believes it
+starts clean will attribute the resulting failures to the code under test.
+
+**The check that closes it:** read the state back through a **different door** than the one that
+wrote it. Deleting through the filesystem and confirming through the filesystem proves the path you
+chose is empty, which was never in doubt. Opening the store the way the application opens it — here,
+`sqlite3 <file> "select key from ItemTable"` — is what showed the keys sitting where the script was
+not looking.
+
+The same asymmetry applies to writes. `setItem` returning without throwing says the value is in
+memory; it says nothing about the disk, and platforms that flush lazily will lose it if the process
+exits promptly. If a later launch has to observe the value, **poll for it to land** rather than
+assuming the call was enough — measured on the same app at 2 failures in 14 runs before the poll
+existed, and 10 of 10 green after.
