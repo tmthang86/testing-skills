@@ -498,6 +498,72 @@ real defects** in one app's token set on its first run — in a project whose de
 otherwise carefully specified. Compositing first is not a refinement you add later; it is the
 difference between the check finding things and not.
 
+### Sampling that backdrop is harder than it sounds — four ways it silently doesn't happen
+
+The advice above — *sample the lightest and darkest points behind the element and assert the worse
+of the two* — is correct and much harder to follow than one sentence suggests. Measured on a desktop
+app whose default theme is a translucent "glass" scheme over an ambient gradient field, building
+that check produced **four consecutive green runs that measured nothing**. Each failure is generic;
+none is about gradients specifically.
+
+**1. The layer you need may not be on the ancestor chain at all.**
+
+Every contrast helper anyone writes composites `backgroundColor` up the ancestor chain. That reaches
+exactly one class of layer: backgrounds of ancestors. It does not reach a `::before`/`::after`
+backdrop, a fixed-position sibling behind the content root, a `backdrop-filter` result, or a
+platform material. In the measured app the field was painted on `body::before` — above `body`'s
+opaque background, below the app root — so the walk stepped straight over it and every contrast
+number ever produced for that theme composited onto the flat page colour.
+
+The check was not merely unimplemented. It was **unimplementable with computed styles**, because a
+CSS gradient cannot be sampled from script at all: `getComputedStyle` returns the declaration, not
+the paint. The two options are to re-implement the renderer's gradient evaluation, or to read real
+pixels. Re-implementing it is a model of the thing presented as a measurement of the thing; the
+honest route is a screenshot with the content root hidden, decoded, and sampled.
+
+**2. Substituting a better ground must actually change a number — assert that it does.**
+
+The first working version passed on all ten themes. A diagnostic added out of suspicion reported
+`ground reached 0 of 50 measurements`: every ratio was byte-identical with and without the new
+ground. The compositing function had replaced the *last* entry in the collected stack, and the
+opaque page background sits one above it — so compositing the stack forward painted the opaque
+colour back over the sampled ground and erased it exactly. Fifty green assertions, none of them
+about the backdrop.
+
+**Generalise this past contrast.** Whenever you replace an approximation with a more accurate input,
+the run passing is not evidence the accurate input arrived. Count how many results the change moved,
+and assert that count. If a more accurate measurement produces identical numbers, the likeliest
+explanation is that it is not being used.
+
+**3. "Behind the element" means behind *that* element, not the whole screen.**
+
+Taking one pair of extremes for the entire viewport and grading every element against it feels
+conservative. It is not conservative, it is wrong: it graded a bottom-docked status bar against the
+brightest point of a field the bar never overlaps. Seven failures; four vanished when extremes were
+read inside each element's own rectangle. **A measurement that reports failures a user cannot see
+will be disabled**, and it deserves to be.
+
+**4. Do not hard-code which themes have the backdrop. Read it.**
+
+The spec carried "only the glass theme has a field" and passed. A second theme also had one, at low
+alpha, and measured 0.0092 against a hard-coded flat-ground threshold of 0.01 — one thousandth from
+failing a correct theme for the wrong reason. The source comment in the stylesheet said the same
+wrong thing. Read the backdrop token off the document and branch on that; a list of which variants
+have a feature is a second copy of the design system that nothing keeps in sync.
+
+**What it was worth.** Once all four were fixed, the check found three real AA failures the existing
+contrast run could not see — worst **3.76:1** on secondary text over the warm lobe of the field, in
+the app's *default* theme. Two of the three fixes were the same idea: the accent wash sitting
+between accent-coloured text and the ground was thinned, which moves the background away from the
+text colour in light and dark at once, without touching the accent colour itself — the accent is
+also the focus-ring colour and is graded at 3:1 against different surfaces.
+
+**A pairing guard worth copying.** To prove the sampler was reading the backdrop and not the
+application, assert **both** directions: a theme that declares a backdrop must measure a non-zero
+spread, and a theme that declares none must measure zero. Either alone is satisfiable by a broken
+sampler — if the content root is never hidden, every theme shows a large spread including the ones
+that should be flat.
+
 ### Focus treatment is the one conformance check you cannot drive from inside the page
 
 > **Canonical statement of this finding.** `platforms.md` and the e2e skill's `desktop.md` both

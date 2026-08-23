@@ -4,6 +4,75 @@
 
 Initial draft of both skills.
 
+### design-conformance-testing — sampling a non-uniform backdrop, and four ways it silently doesn't happen
+
+`references/layers.md` already advised sampling the lightest and darkest points
+behind an element and asserting the worse of the two. Building that check on the
+same Tauri desktop app produced **four consecutive green runs that measured
+nothing**, so the Accessibility section now carries what the one-sentence
+advice leaves out. None of the four is about gradients specifically.
+
+- **The layer may not be on the ancestor chain at all.** Every contrast helper
+  composites `backgroundColor` upward, which reaches exactly one class of
+  layer. A `::before` backdrop, a fixed sibling behind the content root, a
+  `backdrop-filter` result or a platform material is not an ancestor's
+  background. In the measured app the field was on `body::before` — above the
+  page's opaque background, below the app root — so the walk stepped over it
+  and every contrast number ever produced for that theme used the flat page
+  colour. The check was not unimplemented, it was **unimplementable with
+  computed styles**: a CSS gradient cannot be sampled from script, because
+  `getComputedStyle` returns the declaration and not the paint. Re-implementing
+  gradient evaluation is a model of the renderer presented as a measurement of
+  it; the honest route is a screenshot with the content root hidden.
+- **Substituting a better ground must move a number.** The first working
+  version passed on all ten themes while a diagnostic reported `ground reached
+  0 of 50 measurements` — a later compositing step painted the opaque page
+  colour back over the sampled ground and erased it exactly.
+- **"Behind the element" means behind that element's rectangle.** One pair of
+  extremes for the whole viewport graded a bottom-docked bar against a region
+  it never overlaps. Four of seven reported failures were not real.
+- **Do not hard-code which themes have the backdrop.** The spec said "only the
+  glass theme"; a second theme had one at low alpha and measured 0.0092 against
+  a hard-coded 0.01 threshold — one thousandth from failing a correct theme.
+  The stylesheet's own comment said the same wrong thing.
+
+Once all four were fixed the check found three real AA failures the existing
+contrast run could not see, worst **3.76:1**, on secondary text in the app's
+*default* theme. The section also carries the pairing guard worth copying: a
+theme that declares a backdrop must measure a non-zero spread **and** a theme
+that declares none must measure zero, because either alone is satisfiable by a
+sampler that never hid the content root.
+
+### e2e-testing — three more false greens, two of them about reversals
+
+`references/false-greens.md` gains two numbered cases and an extension to "A
+guard nobody has seen fail". The two reversal findings came from re-proving six
+guards at once while promoting a set of ratcheted checks to blocking.
+
+- **A reversal can itself be a no-op.** One of the six reported PASS, which
+  looks exactly like a guard that cannot fail. The search-and-replace
+  introducing the violation had targeted a string absent from the file, so
+  nothing was inserted and the guard was correctly reporting a clean tree.
+  Assert the violation landed before judging the guard.
+- **A reversal that passes is usually a hole in the test.** A hand-written PNG
+  decoder had its Paeth tie-break inverted and all four unit tests stayed green:
+  ties need particular byte triples and the fixtures contained none. A brute
+  force over all 2²⁴ triples found 43,180 disagreements — 0.26%, which on a
+  megapixel image is thousands of wrong pixels. Occasionally a passing reversal
+  is genuinely fine, and one honest sentence beats manufacturing a failure.
+- **New case 7, the report that only speaks when it fails.** Guards and linters
+  print per-item detail on failure and one summary line on success. Grepping a
+  *passing* report for your filename therefore proves nothing — silence is not
+  evidence. Re-running the tool's own patterns per file also showed all 313
+  findings in one migration lived in five files, which turned an unbounded task
+  into five bounded ones.
+- **New case 8, the more accurate measurement that changed nothing.** When an
+  approximation is replaced with something stricter and the suite still passes,
+  the likelier reading is that the accurate input never reached the
+  computation. Count the results the change moved and assert that count.
+
+Three checklist items added.
+
 ### design-conformance-testing — the cascade layer that silences a whole utility family
 
 Contributed after the largest measured miss on the same Tauri desktop app.

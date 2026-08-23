@@ -15,6 +15,8 @@ understood, and each one had been green the whole time.
 - [4. Fixtures that agree with the bug](#4-fixtures-that-agree-with-the-bug)
 - [5. A guard nobody has seen fail](#5-a-guard-nobody-has-seen-fail)
 - [6. The screenshot that photographed something else](#6-the-screenshot-that-photographed-something-else)
+- [7. The report that only speaks when it fails](#7-the-report-that-only-speaks-when-it-fails)
+- [8. The more accurate measurement that changed nothing](#8-the-more-accurate-measurement-that-changed-nothing)
 - [The checklist](#the-checklist)
 
 ## 1. The test that never asserted
@@ -157,6 +159,32 @@ When a reversal is impractical — it needs a locked machine, or revoking a syst
 in the test's own documentation rather than implying the guard is proven. An honest "this one is
 reviewed by reading, not by reversal" is worth more than a checkmark.
 
+**Two things about reversals that only show up once you run a lot of them.** Both were measured
+while promoting a set of ratcheted style guards to blocking, which meant re-proving six at once.
+
+*A reversal can itself be a no-op.* One of the six reported PASS. That looks exactly like a guard
+that cannot fail, and the wrong conclusion is one keystroke away. The truth was that the
+search-and-replace introducing the violation targeted a string that did not exist in the file, so
+nothing was inserted and the guard was correctly reporting a clean tree. **Assert that the violation
+exists before you judge the guard** — grep for it, or diff the file. Otherwise a reversal proves the
+same nothing that a green test over an empty result set proves, which is the failure this whole
+document is about, arriving one level up.
+
+*A reversal that passes is usually a hole in the TEST, not proof of the code.* A hand-written PNG
+decoder had its Paeth-filter tie-break inverted — a one-character change — and all four of its unit
+tests stayed green. Ties only arise for particular byte triples, and the fifteen hand-picked pixels
+in the fixtures produced none. A brute force over all 2²⁴ triples found 43,180 where the correct and
+inverted versions disagree: 0.26% of the space, which on a megapixel image is thousands of wrong
+pixels. The fix is a fixture that contains the case, not a shrug. **When a reversal passes, the next
+question is "what input would make this matter, and is it in my fixtures?" — not "I guess it's
+fine."**
+
+Occasionally a passing reversal is genuinely fine, and saying so is better than manufacturing a
+failure. In the same session, reverting one of two related fixes left the suite green because the
+second fix made the measurement robust to what the first one prevented. That is worth one sentence
+in the docs — *this fix is correctness, not what carries the check* — rather than a claim that both
+were load-bearing.
+
 ## 6. The screenshot that photographed something else
 
 Screen capture is the instrument people reach for when a check has to happen outside the page —
@@ -227,6 +255,47 @@ defect is that **a capture's success says nothing about what it captured.** Ever
 check needs its own guard: variance for 6a, a window rectangle plus a frontmost assertion for 6b,
 and cadence arithmetic for 6c.
 
+## 7. The report that only speaks when it fails
+
+Most guards, linters and conformance scripts print per-item detail **only on failure** and a single
+summary line when they pass. That is good output design and a trap for the person using the tool to
+verify their own work.
+
+Measured: migrating a 313-finding style debt across five files, one file at a time. After finishing
+the second file, the check was run, its output grepped for that filename, nothing came back, and the
+file was reported clean. The grep proved nothing — the report is silent about every file when it is
+passing, so an absent filename is silence, not evidence. The number happened to be right and the
+evidence was empty.
+
+**The fix is a measurement that speaks whichever way it goes.** Re-running the tool's own patterns
+per file, before and after, turns "no news" into a number. It also turned out to be the single most
+useful thing done in that migration for a different reason: it showed all 313 findings lived in five
+files and every other file was already clean, which is what made an unbounded task into five bounded
+ones.
+
+Generally: **before believing a tool's silence, check whether the tool speaks when the answer is
+"nothing here" or only when the answer is "something is wrong."** Many report the second only.
+
+## 8. The more accurate measurement that changed nothing
+
+You replace an approximation in a check with something more accurate — a properly composited colour
+instead of a declared one, a real device pixel instead of a CSS pixel, the actual served response
+instead of a fixture. The suite passes. The natural reading is that the system was conformant all
+along under the stricter measurement.
+
+The other reading, which is more often true: **the accurate input never reached the computation.**
+
+Measured: a contrast check was extended to composite against a backdrop layer that the old
+measurement could not see. It passed on all ten themes. A counter added out of suspicion reported
+`ground reached 0 of 50 measurements` — every ratio was byte-identical with and without the new
+input, because a later step in the compositing overwrote it. Fifty green assertions, none of them
+about the thing the change was for. Once fixed, the same check failed three of the fifty.
+
+**The guard is one line and belongs in the test permanently:** count the results the new input
+moved, and assert that count. `expect(changed).toBe(total)` where every case should be affected, or
+`expect(changed).toBeGreaterThan(0)` where only some should. An accuracy improvement that produces
+identical numbers is a claim that needs evidence, not a result that needs celebrating.
+
 ## The checklist
 
 Before believing a green run:
@@ -241,3 +310,9 @@ Before believing a green run:
 7. When did anyone last exercise the actual application, rather than the suite?
 8. If a check reads a screenshot: is the frame non-uniform, was the target frontmost when it was
    taken, and is the capture cadence actually faster than the event being looked for?
+9. When a tool reported nothing about your file — does that tool say anything at all when the answer
+   is "nothing here"?
+10. When you made a measurement more accurate, how many results did it change? If none, prove the
+    new input is reaching the computation.
+11. When you reversed a guard: did the violation actually land in the file, and if the reversal
+    passed, what input would make it matter?
