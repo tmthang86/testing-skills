@@ -1,0 +1,20 @@
+{
+  "name": "testing-skills",
+  "owner": {
+    "name": "Thang Tran"
+  },
+  "plugins": [
+    {
+      "name": "e2e-testing",
+      "source": "./plugins/e2e-testing",
+      "version": "0.1.0",
+      "description": "Functional end-to-end UI testing across web, desktop, and mobile using the recommended tooling per platform."
+    },
+    {
+      "name": "design-conformance-testing",
+      "source": "./plugins/design-conformance-testing",
+      "version": "0.1.0",
+      "description": "Verify a built UI matches its design: tokens, mockups, responsive behaviour, visual baselines, and accessibility."
+    }
+  ]
+}

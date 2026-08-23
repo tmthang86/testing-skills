@@ -16,7 +16,7 @@ when both turn the same suite red, people stop reading the failures.
 **As a marketplace** (recommended — versioned, updatable):
 
 ```bash
-/plugin marketplace add <your-org>/<this-repo>
+/plugin marketplace add tmthang86/testing-skills
 /plugin install e2e-testing@testing-skills
 /plugin install design-conformance-testing@testing-skills
 ```
@@ -24,7 +24,7 @@ when both turn the same suite red, people stop reading the failures.
 **Locally, for development:**
 
 ```bash
-git clone <this-repo> && cd testing-skills
+git clone https://github.com/tmthang86/testing-skills && cd testing-skills
 /plugin marketplace add ./
 /plugin install design-conformance-testing@testing-skills
 ```
@@ -42,7 +42,7 @@ the project's `.claude/settings.json`:
 {
   "extraKnownMarketplaces": {
     "testing-skills": {
-      "source": { "source": "github", "repo": "<your-org>/<this-repo>" }
+      "source": { "source": "github", "repo": "tmthang86/testing-skills" }
     }
   },
   "enabledPlugins": {
