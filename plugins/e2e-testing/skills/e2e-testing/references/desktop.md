@@ -122,12 +122,23 @@ alternative — switching the input source to a Latin layout and back — mutate
 stays wrong if the run dies. Note this is a *second* IME hazard: some older tools refuse outright
 under a non-Latin layout, which at least tells you. This one fails silently.
 
-**4. A locked screen is not a slow machine.** Input cannot be delivered into a locked session, and
-on macOS a video window cannot open in one either — `CVDisplayLink` is unavailable and media
-backends stop there without erroring. **Detect it and refuse with that reason**
-(`CGSSessionScreenIsLocked`), because the frontmost check would otherwise refuse with a message
-about focus and send the reader looking in the wrong place. **Display sleep is fine** — the session
-is still active; only locking breaks it.
+**4. A locked screen is not a slow machine — and a sleeping display is a locked screen.** Input
+cannot be delivered into a locked session, and on macOS a video window cannot open in one either:
+`CVDisplayLink` is unavailable and media backends stop there without erroring. **Detect it and
+refuse with that reason** (`CGSSessionScreenIsLocked`), because the frontmost check would otherwise
+refuse with a message about focus and send the reader looking in the wrong place.
+
+The part that is counter-intuitive, and that an earlier draft of this file got wrong: **putting the
+display to sleep locks the session immediately**, even when the machine is configured to wait hours
+before demanding a password. Measured — `pmset displaysleepnow` on a machine whose screen-lock delay
+was set to 28,800 seconds produced `CGSSessionScreenIsLocked = true` at once, and with that check
+bypassed the frontmost application became `loginwindow`. That delay governs only whether a
+*password* is demanded on wake; it does not keep the session drivable in the meantime.
+
+So an unattended suite that uses native input needs the **display awake**, not merely the machine
+awake — schedule around the display-sleep timer, or hold it off for the duration of the run
+(`caffeinate -d` on macOS). Whether disabling screen lock outright makes a sleeping display drivable
+is untested here; it is a security setting and belongs to whoever owns the machine.
 
 **5. A short-lived CLI helper reads stale system state.** Both "is this app active" and "who is
 frontmost" are cached and refresh on the run loop. A helper process that activates an app, sleeps,
