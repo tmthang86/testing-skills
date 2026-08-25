@@ -109,6 +109,38 @@ Resilient tests target what the *user* perceives, not how the DOM/view tree happ
 Now read the reference for the platform you identified and follow it. If the work spans platforms, read each relevant reference and keep the tools cleanly separated.
 
 
+## A red that names nothing is barely better than a green
+
+Careful specs give every wait a message that names what did not happen —
+`"the listing never descended into the folder that was clicked"`. That message
+is the whole diagnostic value of the failure, and there is one common way to
+lose all of it at once.
+
+**The runner has its own per-test timeout, and if it is shorter than the waits
+inside the test, it always wins.** Mocha's default is 60s. A spec that waits up
+to 90s for a file to appear can never print its own message: at 60s the runner
+kills the test and reports a bare `Timeout`, with no indication of which wait
+was outstanding. Every carefully written `timeoutMsg` in the file is dead code.
+
+It is easy to miss because it only shows up when something is *already* wrong,
+and by then the bare `Timeout` reads as "the test is slow" rather than "the
+budget is misconfigured".
+
+Check it whenever a suite's waits are long: **sum the worst case of the waits
+in one test and compare it to the runner's per-test budget.** Where a suite
+genuinely needs longer — a real download, a media player starting, a build —
+raise the budget for that suite only, and leave every other suite failing fast:
+
+```js
+// wdio.conf.ts
+mochaOpts: { timeout: Number(process.env.E2E_TEST_TIMEOUT ?? 60000) }
+// package.json — only the slow suite opts in
+"test:e2e:playback": "E2E_TEST_TIMEOUT=240000 wdio run wdio.conf.ts --suite playback"
+```
+
+Raising it globally is the wrong fix: it makes every unrelated failure take four
+times as long to report.
+
 ## A delete that succeeds is not evidence the right thing was deleted
 
 A suite that resets state before it runs — deleting a preferences file, clearing a store, dropping a

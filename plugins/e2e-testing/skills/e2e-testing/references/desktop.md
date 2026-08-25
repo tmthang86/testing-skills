@@ -24,6 +24,7 @@ Principle that decides most cases: **prefer a tool that targets UI elements via 
   - [One binary path, two builds, and a second writer](#one-binary-path-two-builds-and-a-second-writer)
 - [The webview keyboard boundary (measured)](#the-webview-keyboard-boundary-measured)
 - [Building a native input driver](#building-a-native-input-driver)
+- [The harness kills the app, not what the app started](#the-harness-kills-the-app-not-what-the-app-started)
 - [The loop (all desktop)](#the-loop-all-desktop)
 - [Reality check](#reality-check)
 
@@ -241,6 +242,45 @@ signs out through the real control, deleting a keychain item the shipped app del
 with the test build. Both are correct in isolation and destructive together. If your suite does
 either, say so in the guide — an app that appears to forget its login on its own is a bug report
 filed against the wrong component.
+
+## The harness kills the app, not what the app started
+
+A desktop application under test frequently launches something else: a media
+player, a browser for an OAuth hop, a helper daemon, an installer, a file
+dialog in its own process. The harness knows about **one** process — the one it
+spawned — and kills that one between spec files. Everything the app started is
+outside its model.
+
+The leak is on the failure path, which is why it survives review. The happy
+path ends with the spec closing the thing it opened. A spec that throws between
+"start it" and "stop it" never reaches the stop, and the child keeps running:
+a window on the machine, a socket open, a file lock held. Run the suite a few
+times while iterating and they accumulate — and the next run inherits a
+machine that is not the one the spec assumes.
+
+**Quit the child first in the always-runs hook** (`after`, `afterEach`,
+`finally` — whatever your runner guarantees on the failure path), before any
+other cleanup, and guard it so a cleanup error cannot rewrite the verdict of
+the test that just ran:
+
+```js
+after(async () => {
+  try {
+    if (await playerIsRunning()) await stopPlayer()
+  } catch { /* the app may already be gone; never change the verdict here */ }
+  // ...the rest of the cleanup
+})
+```
+
+**Prove it on the failure path, because that is the only path that leaks.**
+Insert a `throw` immediately after the child is started, run once, and check
+the process table. A cleanup hook that has only ever run after a passing test
+is untested for the case it exists to handle.
+
+When you check the process table, match the executable NAME, not the command
+line — `pkill -x mpv`, not `pkill -f mpv`. `-f` matches anything with that
+string anywhere in its arguments, and unrelated processes have temp paths in
+them; one on the machine where this was written contained `tmpvOhZf5`.
 
 ## The loop (all desktop)
 
