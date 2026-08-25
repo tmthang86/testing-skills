@@ -17,6 +17,7 @@ understood, and each one had been green the whole time.
 - [6. The screenshot that photographed something else](#6-the-screenshot-that-photographed-something-else)
 - [7. The report that only speaks when it fails](#7-the-report-that-only-speaks-when-it-fails)
 - [8. The more accurate measurement that changed nothing](#8-the-more-accurate-measurement-that-changed-nothing)
+- [9. The precondition the suite cannot create](#9-the-precondition-the-suite-cannot-create)
 - [The checklist](#the-checklist)
 
 ## 1. The test that never asserted
@@ -83,7 +84,7 @@ and named it in one line instead of a downstream timeout. It pays for itself twi
 
 ## 3. Exit status is not the result
 
-Six distinct instances in one project, all of the same shape: **something reported success over a
+Seven distinct instances in one project, all of the same shape: **something reported success over a
 failure underneath it.**
 
 | Reported success | Actually true |
@@ -94,9 +95,17 @@ failure underneath it.**
 | A harness printed **PASS** | its own failure path had run; the caller read the wrapper's status |
 | A validator printed **FAILED** | it *did* exit 1 — but the reader had checked `$?` after a pipe again |
 | A subprocess helper threw `Command failed: <argv>` | the child's stderr said *which* refusal it was, and the wrapper discarded it |
+| An **agent harness** reported a backgrounded command as **exit 0** | the command had been piped into `tail` to keep the log short, so the reported status was `tail`'s; the captured output itself said `at least one suite failed` |
 
-The last one is the most instructive: it was written the same afternoon by someone who had just
-written the other five down.
+Two of these are worth singling out. The subprocess one was written the same afternoon by someone
+who had just written the earlier five down.
+
+The last one is a **new vector for the old shape, and it is specific to agent-driven work.** A
+harness that runs a command in the background and reports its exit code reports the status of the
+whole pipeline — so any `| tail`, `| head` or `| grep` added for log-tidying purposes silently
+becomes the thing whose status is reported. The convenience and the defect are the same keystroke.
+Redirect to a file and read it (`cmd > out.log 2>&1`), or set `pipefail`; do not pipe a command
+whose status you intend to trust.
 
 **Two rules follow.**
 
@@ -296,6 +305,53 @@ moved, and assert that count. `expect(changed).toBe(total)` where every case sho
 `expect(changed).toBeGreaterThan(0)` where only some should. An accuracy improvement that produces
 identical numbers is a claim that needs evidence, not a result that needs celebrating.
 
+## 9. The precondition the suite cannot create
+
+A suite asserts an **absence** — no stored credential, no cached file, no granted permission, no
+prior install. On a clean machine it is green. On a developer's machine, or the second time it runs,
+the thing is present and the suite goes red.
+
+The tempting fix is to make the setup delete it. Often the suite **must not**: deleting a real
+credential signs a person out of the real application, revoking a permission re-triggers an OS
+dialog, clearing a cache destroys work. So the precondition stays unenforceable, which is a
+legitimate choice.
+
+**The defect is not the unenforceable precondition. It is that the failure does not name it.** What
+the assertion reports is a component:
+
+```
+expect(count("account-expired")).toBe(0)     Received: 1
+expect(label).toBe("Sign in")                Received: "Session expired"
+```
+
+Read cold, that is a product bug, and it sends whoever reads it into the application code. The real
+cause is one sentence long and lives nowhere near the assertion.
+
+**The rule: a precondition a suite cannot enforce belongs in its failure message, not only in its
+documentation.** Check it explicitly in `before`, and fail with the remedy:
+
+```js
+before(async () => {
+  if (await credentialExists()) {
+    throw new Error(
+      'precondition: a stored session exists, and these specs assert the signed-out state. ' +
+      'This suite will not delete it — sign out in the app, or remove it manually, then re-run.'
+    )
+  }
+})
+```
+
+Two things that make this worse and are worth checking for:
+
+- **The application may have no path to the required state.** In the case above, the app had reached
+  a state whose only offered remedy was to sign in again — there was no control that discarded the
+  dead credential. So the instruction "sign out and re-run" was impossible to follow, and the suite
+  was unfixable from the interface. **When you write the remedy into the failure message, verify the
+  remedy is reachable**; that verification is how the product defect was found at all.
+- **A suite skipped for being "flaky on my machine" is deleted, just slowly.** State-dependent red
+  is the most common reason a suite stops being run, and it looks identical to genuine flake from
+  the outside.
+
 ## The checklist
 
 Before believing a green run:
@@ -316,3 +372,6 @@ Before believing a green run:
     new input is reaching the computation.
 11. When you reversed a guard: did the violation actually land in the file, and if the reversal
     passed, what input would make it matter?
+12. Does the suite assume any state it does not create — an absent credential, an empty cache, an
+    ungranted permission? If it cannot create it, does the **failure message** say so and name a
+    remedy you have confirmed is reachable?
