@@ -18,6 +18,7 @@ understood, and each one had been green the whole time.
 - [7. The report that only speaks when it fails](#7-the-report-that-only-speaks-when-it-fails)
 - [8. The more accurate measurement that changed nothing](#8-the-more-accurate-measurement-that-changed-nothing)
 - [9. The precondition the suite cannot create](#9-the-precondition-the-suite-cannot-create)
+  - [9a. The precondition the environment quietly declines to provide](#9a-the-precondition-the-environment-quietly-declines-to-provide)
 - [The checklist](#the-checklist)
 
 ## 1. The test that never asserted
@@ -352,6 +353,47 @@ Two things that make this worse and are worth checking for:
   is the most common reason a suite stops being run, and it looks identical to genuine flake from
   the outside.
 
+### 9a. The precondition the environment quietly declines to provide
+
+The case above is a precondition the suite *may not* create. This is its mirror: one the suite
+*believes it has* created, on a platform that did not oblige — and here the failure mode is green,
+not red.
+
+The shape: a test fabricates a condition in order to assert how the code reports it. The condition
+is not created by the test's own code but **granted by something underneath it** — a filesystem, a
+clock, a locale, a codec, a permission model. If that layer declines, the fabrication silently
+becomes something else, and the assertion may still pass for a reason that has nothing to do with
+the code under test.
+
+A worked example. A screen must report a file's *allocated* size rather than its *apparent* size —
+the two diverge for sparse files, and the whole point of the feature is that a file which looks
+like 21 GB may occupy 800 MB. To test it, plant a sparse file: write a little, extend the length a
+lot. Then assert the screen shows the small number.
+
+On a filesystem without sparse-file support, the extension is materialised. Apparent and allocated
+are now **equal**, and the assertion "shows the small number" is satisfied by code that reports
+either one. The test is green and the distinction it exists to defend is untested. Nothing reports
+that the platform changed the subject.
+
+**The rule: assert the condition, not only the outcome.** One line, before the code under test is
+ever reached:
+
+```js
+const stat = statSync(planted)
+expect(stat.size).toBe(APPARENT)                       // the fabrication took
+expect(stat.blocks * 512).toBeLessThan(stat.size / 100) // ...and it is genuinely sparse
+```
+
+Now a platform that does not do sparse files fails **saying so**, instead of blaming — or
+absolving — the application. The measured ratio on the machine where this was written was 2,543x;
+asserting a loose bound rather than an exact figure keeps the check portable while still being
+impossible to satisfy by accident.
+
+Ask it of any fabricated precondition: **if the layer beneath silently refused, would this test go
+red — or would it go green for the wrong reason?** Where the honest answer is the second, the
+condition needs its own assertion. Related: a fabricated *input* that agrees with the bug is §4;
+this is a fabricated *environment* that agrees with either answer.
+
 ## The checklist
 
 Before believing a green run:
@@ -372,6 +414,11 @@ Before believing a green run:
     new input is reaching the computation.
 11. When you reversed a guard: did the violation actually land in the file, and if the reversal
     passed, what input would make it matter?
+12. For every condition the test fabricates rather than computes — a sparse file, a stale clock, a
+    locale, a denied permission: if the layer beneath silently refused, would this go red, or green
+    for the wrong reason? Assert the condition, not only the outcome.
+13. Did the harness launch the artefact the build just produced, or one that something else can
+    also write?
 12. Does the suite assume any state it does not create — an absent credential, an empty cache, an
     ungranted permission? If it cannot create it, does the **failure message** say so and name a
     remedy you have confirmed is reachable?

@@ -21,6 +21,7 @@ Principle that decides most cases: **prefer a tool that targets UI elements via 
 - [macOS: Hammerspoon](#macos-hammerspoon)
 - [Windows: UI Automation](#windows-ui-automation)
 - [Tauri](#tauri)
+  - [One binary path, two builds, and a second writer](#one-binary-path-two-builds-and-a-second-writer)
 - [The webview keyboard boundary (measured)](#the-webview-keyboard-boundary-measured)
 - [Building a native input driver](#building-a-native-input-driver)
 - [The loop (all desktop)](#the-loop-all-desktop)
@@ -61,6 +62,49 @@ Drive it with a WebDriver client, or use the `mcp-tauri-automation` MCP server f
 **Before you write a keyboard test against it, read the next section.** On macOS the embedded
 WebDriver silently drops synthetic key events, which means an Enter-to-submit test, a Tab-order
 test, or a focus-ring test can run, pass, and have proven nothing.
+
+### One binary path, two builds, and a second writer
+
+The driver — `tauri-driver`'s counterpart or an embedded WebDriver plugin — is normally behind a
+build flag, because a shipped application must not carry a listening automation server. So the
+dev-mode command and the e2e build write **the same binary path with different feature sets**, and
+only one of them contains the driver.
+
+Launch the harness against the wrong one and it reports:
+
+```
+Failed to start embedded WebDriver: server did not become ready on port 4445 within 60000ms.
+Ensure the plugin is registered in your app: app.plugin(...init())
+```
+
+The message names plugin *registration*, so it sends you into the source. The registration is
+usually fine. What is missing is the **feature that pulls the dependency in**, which is why this
+costs time out of proportion to its difficulty. One command settles it before you read any code:
+
+```bash
+strings -a path/to/app-binary | grep -c webdriver     # 0 = wrong build, not wrong source
+```
+
+Two distinct ways to end up there, and the second is the expensive one:
+
+1. **A leftover binary.** The dev command ran last and its output is still sitting at that path.
+   Fixed by always going through the scripted e2e entry point, which rebuilds with the right
+   features first.
+2. **A *running* dev process.** A dev server watches the tree and rebuilds on save, so it rewrites
+   that path **while a run is in flight** — the e2e build can produce a correct binary and the
+   watcher can replace it seconds later, before the harness launches it. The run then fails with
+   the message above *even though the build immediately preceding it was correct*, which reads as
+   a flaky harness rather than as a second writer.
+
+Case 2 survives every fix aimed at case 1, and no amount of rebuilding helps while the watcher is
+alive. **Stop the dev process before an e2e run, not just before the build.** If the suite is run
+by people rather than only by CI, make the entry point refuse to start while a dev process is
+alive, and say why — an unenforceable precondition belongs in the failure message
+(`false-greens.md` §9).
+
+The general shape, past this one toolchain: **when a harness launches an artefact it did not itself
+build in the same instant, identify the artefact before you debug the source.** Anything that can
+write that path is a participant in the test.
 
 ## The webview keyboard boundary (measured)
 
