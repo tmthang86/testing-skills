@@ -26,6 +26,7 @@ and no browser, and the same shapes turn up anyway. These are not browser proble
 - [10. The knob that moved with the fix and was not the cause](#10-the-knob-that-moved-with-the-fix-and-was-not-the-cause)
 - [11. The check nobody ran](#11-the-check-nobody-ran)
 - [12. Fifteen out of sixteen](#12-fifteen-out-of-sixteen)
+- [13. Two instruments that could not see what they were aimed at](#13-two-instruments-that-could-not-see-what-they-were-aimed-at)
   - [9a. The precondition the environment quietly declines to provide](#9a-the-precondition-the-environment-quietly-declines-to-provide)
 - [The checklist](#the-checklist)
 
@@ -77,6 +78,18 @@ This shape is everywhere once you look for it:
 action happened.** Read the input back after typing into it; assert the list was non-empty *before*
 filtering; check the click's own side effect. One extra round trip buys the difference between a
 test and a decoration.
+
+**The extreme form is a suite measuring a system that is no longer there.** Measured on the
+protocol engine: an allocation benchmark reported *1 allocation per 1000 iterations* — close enough
+to zero to look like a rounding artefact, and stable across runs, which made it look real. The
+component under test had rejected the second message and torn the connection down, so from iteration
+three the loop was pushing into a queue nobody read. Two hours went into looking for that one
+allocation in code that never ran.
+
+A zero means *did not happen* only when something separately proves *did run*. Every case in those
+benchmarks now asserts its own path is still live at the end of the count — `the send path sends`,
+`must still hold a live session` — which is the same pairing as the rule below, applied to a
+component rather than to an input.
 
 Concretely, after driving an input, read it back before asserting on the consequences:
 
@@ -484,6 +497,12 @@ by someone running it while doing something else.
 The assertion was real, well-written, and had a good failure message. It was, functionally, a
 comment.
 
+The same shape reaches targets as well as guards. Measured on a different project: a benchmark
+carried `// Target: <= 80 ns` above a case that measured **565 ns**. The target was written as a
+comment, so nothing read it and nothing failed when it was missed by 7x. **A target only a human can
+check is not a gate**, and it is indistinguishable from one that is until someone does the
+arithmetic by hand.
+
 **The check to run is not on your code. It is on your pipeline.** Take the list of commands CI
 actually invokes and the list of guards you believe you have, and cross them off against each other.
 Anything in the second list that is not reachable from the first is documentation. This costs ten
@@ -538,6 +557,35 @@ took one script. The general form is a question to ask of any rule that looks li
 A rule that holds for 15 of 16 by coincidence and 16 of 16 by design produces identical test
 results. The difference only shows on the member nobody chose.
 
+## 13. Two instruments that could not see what they were aimed at
+
+§6 is about a screenshot that photographed the wrong thing. This is the same defect in tools that
+take no picture at all: **an instrument that structurally cannot observe the property, reporting
+success.**
+
+Measured, on one rule — *this thread never blocks* — over two attempts, both of which passed:
+
+- **The platform refused the instrument.** A syscall tracer was pointed at the process. The
+  operating system's own integrity protection declined to attach, so it never ran. The wrapper
+  reported no blocking calls, which was true and meaningless.
+- **The instrument could not see the code.** Reading undefined symbols out of the compiled library
+  showed no blocking calls — and still showed none **with a sleep added to the loop**. The code in
+  question was generic and had never been instantiated into that library at all, so there was
+  nothing there to find, sleep or no sleep.
+
+Both were deleted rather than shipped. What replaced them traces a **concrete binary**, attributes
+the calls to the specific thread by id — the other thread blocks on purpose and would mask
+everything — and **runs the binary a second time with the blocking version deliberately switched on,
+failing if that run does not trip the check.**
+
+The general rule: **an instrument you have only ever seen agree with you is not known to work.** Ask
+of any new one, before trusting it:
+
+- Did it actually attach, run, or open the thing — or did it silently decline?
+- Is the property it examines even present in what it examined? Generic code, dead-stripped code and
+  inlined code are absent from artefacts that appear to contain them.
+- What is the concrete change that should make it fail, and does it?
+
 ## The checklist
 
 Before believing a green run:
@@ -576,3 +624,7 @@ Before believing a green run:
     condition the suite measures and production never has, or misses and production does.
 19. When a rule is derived from a set, does it hold for the whole set, or for most of it by
     coincidence? Enumerate; the case that breaks it is the one nobody reaches for.
+20. Does any target live in a comment? Nothing reads a comment, and a missed one looks exactly like
+    a met one.
+21. For any new instrument: did it actually attach and run, is the property present in what it
+    examined at all, and what concrete change makes it fail?
