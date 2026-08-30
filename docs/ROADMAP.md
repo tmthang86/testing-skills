@@ -107,12 +107,13 @@ path, which the fixtures cover but real markup will stress differently.
 
    **What already carries over unchanged:** `references/false-greens.md` is
    substantially platform-agnostic — it was measured partly on a Rust test suite and
-   live API tests, not only on the WebDriver suite. Eight of its nine cases apply
-   directly to a protocol app; §9 (the precondition the suite cannot create) is if
-   anything sharper there, where logon state and sequence numbers are exactly the
-   preconditions a suite cannot conjure. Only §6 (the screenshot that photographed
-   something else) is UI-only. Share that reference across skills rather than
-   copying it.
+   live API tests, not only on the WebDriver suite. Nearly every case in it applies
+   directly to a protocol app, and §9 (the precondition the suite cannot create) is
+   if anything sharper there, where logon state and sequence numbers are exactly the
+   preconditions a suite cannot conjure. §6 (the screenshot that photographed
+   something else) is the one case that is UI-specific. Share that reference across
+   skills rather than copying it — and check it before writing anything here, since
+   cases measured on a non-UI system are being added to it directly.
 
    Sequence this after item 3 — a third skill widens the triggering surface, and
    measuring the boundaries between two skills is the prerequisite for adding a third.
