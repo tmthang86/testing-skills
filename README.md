@@ -103,6 +103,13 @@ Also worth running before you push:
 claude plugin validate .
 ```
 
+All three layers run in CI on every push and every pull request —
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml), one job per layer so a failure names
+which one broke. The browser is cached against the resolved Playwright version, and the
+integration job is **blocking**: an integration test allowed to fail is how a project ends up
+with a check nobody reads, which is
+[`false-greens.md` §11](plugins/e2e-testing/skills/e2e-testing/references/false-greens.md).
+
 ### Why the comparator is split the way it is
 
 `compare-design.mjs` deliberately separates browser extraction from pure

@@ -1,0 +1,94 @@
+# The checks this repository already documents, actually running.
+#
+# `README.md` and `docs/ROADMAP.md` said in four places that CI exercised the
+# browser path on every push. There was no `.github/` directory. The scripts
+# were real and `npm test` ran them; nothing ran `npm test`.
+#
+# That is this repository's own `false-greens.md` §11 — an assertion nothing
+# executes is a comment — so the fix is the workflow rather than a softer
+# sentence in the docs.
+#
+# Three jobs rather than one `npm test`, mirroring the README's own table: when
+# a layer breaks, the failure names which one. This repository cares more than
+# most about what a report says when it speaks.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Frontmatter, cross-references, manifest consistency. Seconds, no browser.
+  # `docs/ROADMAP.md` calls a stale manifest version the failure that "masks the
+  # one you meant to ship" — this is the check that catches it.
+  validate:
+    name: Skill frontmatter, references, manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run validate
+
+  # The comparator's pure logic. Also seconds, also no browser — which is the
+  # reason it was split out that way in the first place.
+  unit:
+    name: Comparator pure logic
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:unit
+
+  # The browser path, against the fixtures with five documented faults.
+  #
+  # **Blocking, deliberately.** An integration job allowed to fail is how a
+  # project gets back to a check nobody reads, which is the defect this file
+  # exists to close. The browser is cached so that costs seconds, not minutes.
+  #
+  # `scripts/integration-test.mjs` exits 2 when the browser is missing rather
+  # than passing, so a cache miss or a failed download fails loudly instead of
+  # reporting a green run that touched no browser at all.
+  integration:
+    name: Comparator browser path
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # Keyed on the resolved Playwright version: a lockfile bump must not
+      # reuse a browser built for the previous one, which is the failure mode
+      # that leaves `chromium-<old>` on disk and the runner looking for
+      # `chromium-<new>`.
+      - id: pw
+        run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        id: browser-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+      - if: steps.browser-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+      # System libraries are not in the cache, so they are installed either way.
+      - if: steps.browser-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      - run: npm run test:integration
