@@ -4,9 +4,14 @@ A red test is information. A green test is information **only if it could have b
 the ways a suite lies are invisible in its own output, because a suite that asserts nothing and a
 suite that asserts everything print the same word.
 
-Everything below was measured on a real desktop application over about a week — a Tauri app with a
-WebDriver suite, a Rust test suite, and live API tests. Each case cost hours before it was
-understood, and each one had been green the whole time.
+Everything below was measured, not researched. Cases 1–9 come from a real desktop application over
+about a week — a Tauri app with a WebDriver suite, a Rust test suite, and live API tests. Cases
+10–12, and two of the additions to §5, come from a second system with no UI at all: a FIX protocol
+engine, whose end-to-end tests drive real bytes through a real socket. Each case cost hours before
+it was understood, and each one had been green — or red for the wrong reason — the whole time.
+
+**That the two sources agree is the useful part.** A wire protocol has no screenshots, no locators
+and no browser, and the same shapes turn up anyway. These are not browser problems.
 
 ## Table of contents
 - [1. The test that never asserted](#1-the-test-that-never-asserted)
@@ -18,6 +23,9 @@ understood, and each one had been green the whole time.
 - [7. The report that only speaks when it fails](#7-the-report-that-only-speaks-when-it-fails)
 - [8. The more accurate measurement that changed nothing](#8-the-more-accurate-measurement-that-changed-nothing)
 - [9. The precondition the suite cannot create](#9-the-precondition-the-suite-cannot-create)
+- [10. The knob that moved with the fix and was not the cause](#10-the-knob-that-moved-with-the-fix-and-was-not-the-cause)
+- [11. The check nobody ran](#11-the-check-nobody-ran)
+- [12. Fifteen out of sixteen](#12-fifteen-out-of-sixteen)
   - [9a. The precondition the environment quietly declines to provide](#9a-the-precondition-the-environment-quietly-declines-to-provide)
 - [The checklist](#the-checklist)
 
@@ -188,6 +196,25 @@ inverted versions disagree: 0.26% of the space, which on a megapixel image is th
 pixels. The fix is a fixture that contains the case, not a shrug. **When a reversal passes, the next
 question is "what input would make this matter, and is it in my fixtures?" — not "I guess it's
 fine."**
+
+**Two more ways a reversal inserts nothing, both measured on the protocol engine, both of which
+reported PASS.** They matter because the search-and-replace case above suggests the fix is "check
+your string" — and neither of these is a string problem.
+
+*The compiler deleted it.* A counting allocator reported zero allocations on a hot path. The
+reversal injected an allocation to prove the counter could see that path; it still reported zero.
+The optimiser had removed the injected allocation, because nothing consumed its result. An
+injection has to be **observed to have happened**, not merely written: use a value the optimiser
+cannot prove dead, and assert the counter moved before trusting the zero.
+
+*A formatter moved the target.* A replacement of `.max()` with `.min()` silently failed to apply,
+because an auto-formatter had joined the expression onto one line since the file was last read and
+the multi-line search string no longer matched. The guard reported PASS. Nothing had been injected.
+
+Both collapse to one habit, and it is cheap: **after injecting, `grep` for the violation and assert
+it is present, before you read the result.** Do it every time, including — especially — when you
+are the person who just wrote the paragraph telling other people to do it. The author of this
+addition was caught by the formatter case while quoting this very section in three commits.
 
 Occasionally a passing reversal is genuinely fine, and saying so is better than manufacturing a
 failure. In the same session, reverting one of two related fixes left the suite green because the
@@ -394,6 +421,123 @@ red — or would it go green for the wrong reason?** Where the honest answer is 
 condition needs its own assertion. Related: a fabricated *input* that agrees with the bug is §4;
 this is a fabricated *environment* that agrees with either answer.
 
+## 10. The knob that moved with the fix and was not the cause
+
+A test scored 39 out of 59 on one machine and 59 out of 59 on another. The harness decided an
+exchange had settled after 200 consecutive polls that moved nothing, so that constant was the
+obvious suspect. Turning it up walked the score:
+
+| settle bound | score |
+|---|---|
+| 200 | **39 / 59** |
+| 2 000 | **43 / 59** |
+| 20 000 | **59 / 59** |
+
+Monotonic, reproducible, and with an explanation that wrote itself: *a poll count measures the CPU,
+not the network.* That went into a status page, a README, two design documents and a pull request
+**within the hour, each restating it as settled.**
+
+It was wrong. The cause was **Nagle's algorithm on the test harness's own client socket.** One
+message in the corpus deliberately produces no reply, so no outbound segment carried a piggybacked
+ACK, the peer's delayed ACK held for tens of milliseconds, and every subsequent small write queued
+behind the unacknowledged one. Four messages arrived as a single read. **The longer timeouts were
+outwaiting the delayed ACK**, which is why the score responded to them.
+
+The experiment that settles it is a 2 × 2, one run per cell:
+
+| | Nagle on | `TCP_NODELAY` set |
+|---|---|---|
+| poll count, 200 | **39 / 59** | **59 / 59** |
+| wall-clock bound | **39 / 59** | **59 / 59** |
+
+The suspect moves nothing in either direction. The real cause moves everything in both. Removing
+the one-line fix returns the score to exactly 39 — which is what makes it a reversal and not a
+story.
+
+**A number that responds to a knob is evidence that something is being waited on. It is not
+evidence about what.** The next move is a trace, or a single-variable table, not a third value of
+the knob. That table cost four runs and would have refuted the wrong answer before any of the five
+documents were written.
+
+### And the specific trap underneath it
+
+**The system under test was configured correctly and the harness was not.** The engine had set
+`TCP_NODELAY` on every socket it accepted since the day it was written. The test client never set
+it, which made the rig the only misconfigured peer in the exchange — so the suite was measuring a
+network condition the product does not have in production.
+
+Worth asking of any harness that stands in for a real peer: **which options does the real
+counterparty set that this fake does not?** Socket options, timeouts, keep-alives, TLS versions,
+compression, retry policy. Every difference is something the suite can measure that the product
+will never experience, or miss that it will.
+
+## 11. The check nobody ran
+
+§3 is about reading a result rather than an exit status. This is the layer beneath it: **an
+assertion that no automated thing executes at all.**
+
+Measured: a benchmark asserting a performance ceiling had been failing on every Linux machine since
+it was written, and **nothing had ever reported it.** The project's test command does not run
+benchmark targets, and no CI job invoked the benchmark runner. It was found by hand, months later,
+by someone running it while doing something else.
+
+The assertion was real, well-written, and had a good failure message. It was, functionally, a
+comment.
+
+**The check to run is not on your code. It is on your pipeline.** Take the list of commands CI
+actually invokes and the list of guards you believe you have, and cross them off against each other.
+Anything in the second list that is not reachable from the first is documentation. This costs ten
+minutes once and is the only way to find guards that were never wired up — no amount of reading them
+will, because they look exactly like guards that run.
+
+### The same defect one level up: the result nobody read
+
+The other half is a check that runs, reports, and is not looked at. Measured, on the same project:
+CI had been failing on the main branch for a day. The merge that broke it reported its own checks
+green — **truthfully**, from a developer machine. CI disagreed within the minute and no one opened
+the tab, so four documents carried the laptop's number.
+
+A local run says the checks pass **for you**. Only CI says they pass **for the commit**. If a
+project's definition of done does not require naming a specific green pipeline run, it will
+eventually ship on a laptop's word.
+
+### A red that is not yours either
+
+The mirror image is worth naming because it burns a morning: a build that goes red **with no commit
+behind it.** Measured: a lint suite pinned to "latest stable" turned a repository red when the
+toolchain released a new rule. Nothing had changed in the code.
+
+`-D warnings` — or any "fail on anything the tool disapproves of" — against an unpinned toolchain is
+a scheduled outage. Pin the toolchain and upgrade deliberately, and run the newest one in a
+**separate job that is allowed to fail**, so the next new rule arrives as a warning to read at the
+time it appears rather than as a mystery later.
+
+## 12. Fifteen out of sixteen
+
+§4 is about fixtures that agree with the bug. This is its close relative and it is harder to see,
+because the fixtures are fine: **the set they are drawn from is skewed, so a wrong rule satisfies
+almost all of it by coincidence.**
+
+Measured: a wire format has sixteen field pairs where one field states the length of another, and
+the length must be written immediately in front. **Fifteen of the sixteen** happen to number the
+length one below the data, so ordering fields by ascending number placed them correctly — by
+arithmetic accident. The sixteenth does not, and it was emitted in the wrong order: unreadable by
+any receiver.
+
+Every example anyone would write by hand passes. The one broken pairing is not one a person reaches
+for. And the project's own round-trip test *skipped* that entire class of field with a comment
+saying it was "a different test" — and it was tested nowhere.
+
+**When a rule is derived from a set, enumerate the set and check the rule against all of it.** That
+took one script. The general form is a question to ask of any rule that looks like a pattern:
+
+- How many members of the set does this rule cover, exactly?
+- Which members satisfy it for a *different* reason than the one I am relying on?
+- Is the case that breaks it in the fixtures, or does it merely exist?
+
+A rule that holds for 15 of 16 by coincidence and 16 of 16 by design produces identical test
+results. The difference only shows on the member nobody chose.
+
 ## The checklist
 
 Before believing a green run:
@@ -419,6 +563,16 @@ Before believing a green run:
     for the wrong reason? Assert the condition, not only the outcome.
 13. Did the harness launch the artefact the build just produced, or one that something else can
     also write?
-12. Does the suite assume any state it does not create — an absent credential, an empty cache, an
+14. Does the suite assume any state it does not create — an absent credential, an empty cache, an
     ungranted permission? If it cannot create it, does the **failure message** say so and name a
     remedy you have confirmed is reachable?
+15. Is every guard you believe you have reachable from a command CI actually runs? Cross the two
+    lists off against each other; anything unreachable is a comment.
+16. Does your definition of done name a specific green CI run, or does a local pass count? A laptop
+    says the checks pass for you; only CI says they pass for the commit.
+17. When a number responds to a knob, did you establish what is being waited on — or did you assume
+    the knob? One single-variable table beats a third value of the knob.
+18. Which options does the real counterparty set that your harness does not? Every difference is a
+    condition the suite measures and production never has, or misses and production does.
+19. When a rule is derived from a set, does it hold for the whole set, or for most of it by
+    coincidence? Enumerate; the case that breaks it is the one nobody reaches for.
