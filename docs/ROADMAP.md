@@ -69,6 +69,54 @@ path, which the fixtures cover but real markup will stress differently.
 6. **Mobile token conformance** is a real gap (no `getComputedStyle` equivalent). The
    documented answer is to push it into in-app component tests. Revisit if mobile
    becomes a priority.
+7. **A third skill, for systems with no UI** (`protocol-e2e-testing`, working name).
+   Both current skills assume a screen. The `e2e-testing` router offers five rows —
+   web, Electron/Tauri, native macOS, native Windows, iOS/Android — and a
+   message-based system (a FIX gateway, a matching engine, a gRPC or raw-socket
+   service) matches none of them. Nothing anywhere in the plugin mentions protocol,
+   socket, or API testing.
+
+   **This is a triggering defect, not only a missing feature.** The frontmatter reads
+   *"E2E / UI / browser / functional tests"* and *"set up a test suite"* — unqualified
+   enough that "add e2e tests for our FIX gateway" will trigger the skill, which then
+   routes into a table with no matching row. It fails by giving UI advice for a non-UI
+   system rather than by declining cleanly. The existing **Scope: functional only**
+   section does not save it: that section separates *functional vs design* and says
+   nothing about *UI vs non-UI*.
+
+   Do it in two steps, in this order:
+
+   **a. Close the boundary first.** Cheap, and worth doing whether or not the third
+   skill ever gets written: say UI-driven in the `e2e-testing` description, and add an
+   explicit row to the Step 1 router for systems with no UI so the model has somewhere
+   to land. An honest "this skill doesn't cover that" beats a confident wrong route.
+
+   **b. Then write the skill in parallel, not as a fork.** The anti-hallucination
+   principle transfers exactly; only the medium changes. An agent inventing
+   `.btn-primary` and an agent inventing tag `6001` for a custom field are the same
+   failure:
+
+   | `e2e-testing` (UI) | non-UI equivalent |
+   |---|---|
+   | Playwright / Maestro drives the app | A real engine as counterparty (QuickFIX/J, quickfix-go, quickfix-n) |
+   | Snapshot the accessibility tree | Capture a real session log plus the Data Dictionary XML |
+   | **Never invent a selector** | **Never invent a tag number** — read the dictionary, don't recall it |
+   | Page Object Model | Message builders / scenario DSL keyed by MsgType |
+   | Locator priority | Session level (Logon, Heartbeat, ResendRequest, SeqReset) vs application level (NewOrderSingle → ExecutionReport) |
+   | Isolate state per test | Reset sequence numbers and use a distinct CompID per test |
+
+   **What already carries over unchanged:** `references/false-greens.md` is
+   substantially platform-agnostic — it was measured partly on a Rust test suite and
+   live API tests, not only on the WebDriver suite. Nearly every case in it applies
+   directly to a protocol app, and §9 (the precondition the suite cannot create) is
+   if anything sharper there, where logon state and sequence numbers are exactly the
+   preconditions a suite cannot conjure. §6 (the screenshot that photographed
+   something else) is the one case that is UI-specific. Share that reference across
+   skills rather than copying it — and check it before writing anything here, since
+   cases measured on a non-UI system are being added to it directly.
+
+   Sequence this after item 3 — a third skill widens the triggering surface, and
+   measuring the boundaries between two skills is the prerequisite for adding a third.
 
 ## Design decisions worth preserving
 
@@ -79,6 +127,10 @@ skills:
   asserting) is the single most important instruction in `e2e-testing`.
 - **Functional and conformance stay separate.** Different failure modes, different
   tooling, different CI gating. Merging them means people stop reading failures.
+- **One skill owns one medium.** `e2e-testing` drives a UI. The moment a skill is
+  asked to also cover a system with no screen, its router stops being a decision
+  procedure and its description stops being a trigger boundary. Add a sibling
+  skill instead, and share the medium-independent references between them.
 - **Repo-committed artifacts beat Figma** for automated conformance: versioned,
   machine-readable, and HTML mockups render in the same engine as the app (DOM-to-DOM
   diffing tells you *what* diverged, not just that something did).
