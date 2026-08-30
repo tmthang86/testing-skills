@@ -371,6 +371,38 @@ export function buildReport(results, tolerance = 1) {
   };
 }
 
+
+/**
+ * Severity order, with each consequence placed directly under its cause.
+ *
+ * Indenting a derived finding is not enough on its own: sorting by severity
+ * alone leaves it under whatever happened to sort before it, which reads as if
+ * that were its cause. `[measured]` the first run of this put
+ * `title · width — follows card · paddingLeft` underneath `card · height`.
+ *
+ * A consequence whose cause is not in the list — possible if the cause sorted
+ * into another viewport's group — goes at the end rather than being dropped.
+ */
+function orderWithConsequences(items, order) {
+  const derived = items.filter((f) => f.kind === 'derived');
+  const rest = items.filter((f) => f.kind !== 'derived')
+    .sort((a, b) => order[a.severity] - order[b.severity]);
+
+  const placed = new Set();
+  const out = [];
+  for (const f of rest) {
+    out.push(f);
+    for (const d of derived) {
+      if (placed.has(d)) continue;
+      if (d.derivedFrom?.element === f.element && d.derivedFrom?.props?.includes(f.prop)) {
+        out.push(d);
+        placed.add(d);
+      }
+    }
+  }
+  return [...out, ...derived.filter((d) => !placed.has(d))];
+}
+
 export function formatReport(report) {
   const { summary, findings } = report;
   const lines = [];
@@ -386,7 +418,7 @@ export function formatReport(report) {
 
   for (const [vp, items] of Object.entries(groups)) {
     lines.push(`\n  ${vp}`);
-    for (const f of items.sort((a, b) => order[a.severity] - order[b.severity])) {
+    for (const f of orderWithConsequences(items, order)) {
       if (f.kind === 'comparison') {
         const d = f.delta === null ? '' : ` (${f.delta > 0 ? '+' : ''}${f.delta}px)`;
         lines.push(`    [${f.severity}] ${f.element} · ${f.prop}: ` +
@@ -653,6 +685,26 @@ function selfTest() {
     ok('a cause in another viewport explains nothing',
       cross.find((f) => f.element === 'title')?.kind === 'comparison');
   }
+
+
+    // A consequence must be printed under its cause, not merely indented
+    // wherever severity sorting drops it.
+    const rendered = formatReport({
+      summary: { pass: false, viewports: 1, totalFindings: 3, highSeverity: 1, derived: 1 },
+      findings: [
+        { kind: 'comparison', viewport: 'mobile', element: 'card', prop: 'paddingLeft',
+          severity: 'high', expected: '16px', actual: '24px', delta: 8 },
+        { kind: 'comparison', viewport: 'mobile', element: 'card', prop: 'height',
+          severity: 'medium', expected: '211px', actual: '207px', delta: -4 },
+        { kind: 'derived', viewport: 'mobile', element: 'title', prop: 'width',
+          severity: 'medium', expected: '341px', actual: '325px', delta: -16,
+          derivedFrom: { element: 'card', props: ['paddingLeft'], delta: -16 } },
+      ],
+    }).split('\n').map((l) => l.trim());
+    const iCause = rendered.findIndex((l) => l.startsWith('[high] card · paddingLeft'));
+    const iEffect = rendered.findIndex((l) => l.startsWith('└ title'));
+    ok('a consequence is printed directly under its cause',
+      iCause >= 0 && iEffect === iCause + 1);
 
   for (const c of checks) console.log(`${c.pass ? 'ok  ' : 'FAIL'}  ${c.label}`);
   const failed = checks.filter((c) => !c.pass).length;
