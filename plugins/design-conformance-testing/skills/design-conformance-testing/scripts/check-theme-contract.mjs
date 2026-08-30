@@ -171,6 +171,27 @@ export function themesFromAndroidRes(
   return themes;
 }
 
+/**
+ * Merge a `{ themeName: Map<token, value> }` object into an accumulator,
+ * combining values when a theme name appears in both.
+ *
+ * `themesFromJson`, like `themesFromCss` and `themesFromAndroidRes`, returns
+ * token names paired with their values as a `Map` — `checkContract` relies on
+ * `.has()`, `.keys()` and `.size`, and the base-model advisory relies on
+ * iterating `[token, value]` entries to test whether a value looks like a
+ * colour. Spreading a `Map` yields `[key, value]` pairs, not keys, so folding
+ * one into a plain array or `Set` turns every token name into a two-element
+ * array — `checkContract`'s `.has(t)` then compares a string against arrays
+ * and never matches, so every theme is reported as missing every token.
+ */
+export function mergeThemes(acc, parsed) {
+  const out = { ...acc };
+  for (const [name, tokens] of Object.entries(parsed)) {
+    out[name] = new Map([...(out[name] ?? new Map()), ...tokens]);
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- the check
 
 /**
@@ -354,6 +375,25 @@ function selfTest() {
   ok('single theme is not a failure', formatReport(single).startsWith('PASS'));
   ok('empty source reports usefully', formatReport(checkContract({})).includes('no themes found'));
 
+  // Regression: main()'s --json branch once folded a parsed theme's Map into a
+  // Set, which turns every token into an unmatchable [key, value] pair and
+  // reports every theme as missing every token — even a symmetric source.
+  const jsonThemes = themesFromJson({ light: { bg: '#fff' }, dark: { bg: '#000' } });
+  const merged = mergeThemes({}, jsonThemes);
+  ok('mergeThemes keeps token names as strings, not [k,v] pairs',
+    merged.light.has('bg') && merged.dark.has('bg'));
+  ok('mergeThemes preserves values', merged.light.get('bg') === '#fff');
+  ok('a symmetric JSON source passes, not fails, once merged',
+    checkContract(merged).pass);
+
+  const combined = mergeThemes(
+    { light: new Map([['bg', '#fff']]) },
+    { light: new Map([['fg', '#000']]), dark: new Map([['bg', '#000'], ['fg', '#fff']]) },
+  );
+  ok('mergeThemes combines a theme appearing in both sides',
+    combined.light.has('bg') && combined.light.has('fg') && combined.light.size === 2);
+  ok('mergeThemes adds a theme only on the incoming side', combined.dark.size === 2);
+
   console.log(failed === 0 ? '\nself-test: all passed' : `\nself-test: ${failed} failed`);
   return failed === 0 ? 0 : 1;
 }
@@ -388,9 +428,7 @@ async function main() {
     if (!existsSync(args.json)) { console.error(`not found: ${args.json}`); process.exit(2); }
     const at = args['themes-at'] === undefined ? 0 : Number(args['themes-at']);
     const parsed = themesFromJson(JSON.parse(readFileSync(args.json, 'utf8')), at);
-    for (const [k, v] of Object.entries(parsed)) {
-      themes[k] = new Set([...(themes[k] ?? []), ...v]);
-    }
+    themes = mergeThemes(themes, parsed);
   }
   if (typeof args.android === 'string') {
     if (!existsSync(args.android)) { console.error(`not found: ${args.android}`); process.exit(2); }
