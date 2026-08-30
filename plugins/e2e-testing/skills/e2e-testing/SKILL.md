@@ -76,7 +76,11 @@ Read `references/false-greens.md` before handing over a suite, and at minimum:
 - Enforce "every `it()` contains an `expect()`" **as part of the test command**, not as optional lint.
 - Pair any assertion expecting *nothing* with proof that the action actually happened.
 - Read the **output**, not the exit status — they are different checks.
-- Prove each guard by reversal at least once: break what it protects, watch it go red, restore.
+- Prove each guard by reversal at least once: break what it protects, watch it go red, restore — and
+  `grep` for the injected violation before reading the result, because a reversal that inserted
+  nothing reports PASS.
+- Check that every guard is reachable from a command CI actually runs. One that is not is a comment,
+  and it looks exactly like one that works.
 
 ## Locator priority (all platforms)
 
