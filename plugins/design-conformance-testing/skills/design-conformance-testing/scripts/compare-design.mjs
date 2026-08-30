@@ -255,6 +255,65 @@ export function boundaryViewports(breakpoints, height = 900) {
   return out;
 }
 
+
+// ---------------------------------------------------------------------------
+// Attribution — pure. One container drift makes every block child narrower, and
+// reporting each child as its own finding is how a conformance report turns
+// into noise. Nothing is deleted: a consequence is re-labelled `derived` and
+// carries the finding that explains it.
+// ---------------------------------------------------------------------------
+export function attributeDerived(findings, ancestorsByName, tolerance = 1) {
+  // **Width only, and the asymmetry is the point.** In block layout a container
+  // imposes its width on its children, so a container's horizontal padding is a
+  // cause and the child's width is the consequence. Height runs the other way:
+  // a container is usually as tall as its content, so a child's height is the
+  // cause and the container's height the consequence. Attributing a child's
+  // height to its container inverts that.
+  //
+  // `[measured]` this is not theoretical. In `examples/fixtures`, `card` is 4px
+  // shorter and 8px more padded top and bottom, which predicts exactly -20px
+  // for a child — and `icon-btn` is 20px shorter for an entirely unrelated
+  // reason (fault 5, an explicit 24px height against a 44px minimum). Reading
+  // the vertical axis would have labelled a deliberate fault a consequence.
+  const AXIS = {
+    width: ['paddingLeft', 'paddingRight'],
+  };
+
+  // Both lookups are scoped by viewport. A container padded at desktop must not
+  // explain a child that is narrower at mobile — they are different renders and
+  // the coincidence would be silent.
+  const at = (viewport, element, prop) => findings.find((x) =>
+    x.kind === 'comparison' && x.viewport === viewport &&
+    x.element === element && x.prop === prop && typeof x.delta === 'number');
+  const deltaOf = (viewport, element, prop) => at(viewport, element, prop)?.delta ?? 0;
+
+  return findings.map((f) => {
+    if (f.kind !== 'comparison' || !AXIS[f.prop] || typeof f.delta !== 'number') return f;
+
+    // Nearest ancestor first: the innermost container that explains the number
+    // is the one worth naming.
+    for (const a of ancestorsByName?.[f.element] ?? []) {
+      const sides = AXIS[f.prop];
+      const moved = sides.filter((p) => at(f.viewport, a, p));
+      const ownAxis = at(f.viewport, a, f.prop) ? [f.prop] : [];
+      if (!moved.length && !ownAxis.length) continue;
+
+      // A container that grew its padding by N in total takes N off every block
+      // child; a container that changed its own width passes that on directly.
+      const expected = deltaOf(f.viewport, a, f.prop) -
+        sides.reduce((n, p) => n + deltaOf(f.viewport, a, p), 0);
+      if (Math.abs(f.delta - expected) > tolerance) continue;
+
+      return {
+        ...f,
+        kind: 'derived',
+        derivedFrom: { element: a, props: [...moved, ...ownAxis], delta: expected },
+      };
+    }
+    return f;
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Reporting — pure.
 // ---------------------------------------------------------------------------
@@ -281,21 +340,67 @@ export function buildReport(results, tolerance = 1) {
 
   findings.push(...checkResponsiveness(perViewport));
 
-  const high = findings.filter((f) => f.severity === 'high');
+  // The DOM tree, as reported by extraction. Structure does not change between
+  // viewports, so the first result that names an element wins.
+  const tree = {};
+  for (const r of results) {
+    for (const [name, v] of Object.entries(r.actual ?? {})) {
+      if (v?.ancestors && !(name in tree)) tree[name] = v.ancestors;
+    }
+  }
+  const attributed = attributeDerived(findings, tree, tolerance);
+
+  // A consequence never fails the gate on its own: its cause is already in the
+  // report, and failing twice for one drift is the noise this exists to remove.
+  const high = attributed.filter((f) => f.severity === 'high' && f.kind !== 'derived');
+  const derived = attributed.filter((f) => f.kind === 'derived');
   const byViewport = {};
-  for (const f of findings) byViewport[f.viewport] = (byViewport[f.viewport] || 0) + 1;
+  for (const f of attributed) byViewport[f.viewport] = (byViewport[f.viewport] || 0) + 1;
 
   return {
     summary: {
       viewports: perViewport.length,
-      totalFindings: findings.length,
+      totalFindings: attributed.length,
       highSeverity: high.length,
+      derived: derived.length,
       byViewport,
       pass: high.length === 0,
     },
     viewports: perViewport,
-    findings,
+    findings: attributed,
   };
+}
+
+
+/**
+ * Severity order, with each consequence placed directly under its cause.
+ *
+ * Indenting a derived finding is not enough on its own: sorting by severity
+ * alone leaves it under whatever happened to sort before it, which reads as if
+ * that were its cause. `[measured]` the first run of this put
+ * `title · width — follows card · paddingLeft` underneath `card · height`.
+ *
+ * A consequence whose cause is not in the list — possible if the cause sorted
+ * into another viewport's group — goes at the end rather than being dropped.
+ */
+function orderWithConsequences(items, order) {
+  const derived = items.filter((f) => f.kind === 'derived');
+  const rest = items.filter((f) => f.kind !== 'derived')
+    .sort((a, b) => order[a.severity] - order[b.severity]);
+
+  const placed = new Set();
+  const out = [];
+  for (const f of rest) {
+    out.push(f);
+    for (const d of derived) {
+      if (placed.has(d)) continue;
+      if (d.derivedFrom?.element === f.element && d.derivedFrom?.props?.includes(f.prop)) {
+        out.push(d);
+        placed.add(d);
+      }
+    }
+  }
+  return [...out, ...derived.filter((d) => !placed.has(d))];
 }
 
 export function formatReport(report) {
@@ -303,7 +408,8 @@ export function formatReport(report) {
   const lines = [];
   lines.push(
     `${summary.pass ? 'PASS' : 'FAIL'} | viewports: ${summary.viewports} | ` +
-    `findings: ${summary.totalFindings} (high: ${summary.highSeverity})`,
+    `findings: ${summary.totalFindings} (high: ${summary.highSeverity}` +
+    `${summary.derived ? `, derived: ${summary.derived}` : ''})`,
   );
 
   const groups = {};
@@ -312,11 +418,17 @@ export function formatReport(report) {
 
   for (const [vp, items] of Object.entries(groups)) {
     lines.push(`\n  ${vp}`);
-    for (const f of items.sort((a, b) => order[a.severity] - order[b.severity])) {
+    for (const f of orderWithConsequences(items, order)) {
       if (f.kind === 'comparison') {
         const d = f.delta === null ? '' : ` (${f.delta > 0 ? '+' : ''}${f.delta}px)`;
         lines.push(`    [${f.severity}] ${f.element} · ${f.prop}: ` +
           `design=${f.expected} impl=${f.actual}${d}`);
+      } else if (f.kind === 'derived') {
+        // Indented and attributed rather than dropped. The observation is true
+        // and belongs in the report; what it is not is a second defect.
+        const d = f.delta === null ? '' : ` (${f.delta > 0 ? '+' : ''}${f.delta}px)`;
+        lines.push(`      └ ${f.element} · ${f.prop}${d} ` +
+          `— follows ${f.derivedFrom.element} · ${f.derivedFrom.props.join(', ')}`);
       } else {
         lines.push(`    [${f.severity}] ${f.element} · ${f.rule}: ${f.detail}`);
       }
@@ -333,9 +445,13 @@ export function formatReport(report) {
 const PAGE_FN = ([selectors, props]) => {
   const INTERACTIVE = 'a,button,input,select,textarea,[role="button"],[role="link"],[tabindex]';
   const out = {};
+  // Kept so the ancestor chain can be resolved once every element is known:
+  // a container may appear after its children in the selector list.
+  const found = [];
   for (const { name, selector } of selectors) {
     const el = document.querySelector(selector);
     if (!el) { out[name] = null; continue; }
+    found.push({ name, el });
     const cs = getComputedStyle(el);
     const b = el.getBoundingClientRect();
     const style = {};
@@ -350,6 +466,18 @@ const PAGE_FN = ([selectors, props]) => {
       interactive: el.matches(INTERACTIVE),
     };
   }
+  // Which measured elements each measured element sits inside, nearest first.
+  // **Data, not logic**: the comparison that uses it stays pure and unit-tested,
+  // which is the split `docs/ROADMAP.md` calls load-bearing.
+  for (const { name, el } of found) {
+    const chain = [];
+    for (let p = el.parentElement; p; p = p.parentElement) {
+      const hit = found.find((f) => f.el === p);
+      if (hit) chain.push(hit.name);
+    }
+    out[name].ancestors = chain;
+  }
+
   return {
     elements: out,
     pageInfo: {
@@ -488,6 +616,95 @@ function selfTest() {
   ok('findings grouped by viewport', Object.keys(report.summary.byViewport).includes('mobile'));
   ok('formatter runs', typeof formatReport(report) === 'string' &&
     formatReport(report).includes('mobile'));
+
+
+  // --- attribution: a container's drift is not each child's finding ---
+  {
+    // `card` is 8px more padded on each side, so every block child renders
+    // 16px narrower. One real drift; three children reported.
+    const raw = [
+      { kind: 'comparison', viewport: 'mobile', element: 'card', prop: 'paddingLeft',
+        group: 'spacing', severity: 'high', expected: '16px', actual: '24px', delta: 8 },
+      { kind: 'comparison', viewport: 'mobile', element: 'card', prop: 'paddingRight',
+        group: 'spacing', severity: 'high', expected: '16px', actual: '24px', delta: 8 },
+      { kind: 'comparison', viewport: 'mobile', element: 'title', prop: 'width',
+        group: 'size', severity: 'medium', expected: '341px', actual: '325px', delta: -16 },
+      { kind: 'comparison', viewport: 'mobile', element: 'cta', prop: 'width',
+        group: 'size', severity: 'medium', expected: '341px', actual: '325px', delta: -16 },
+      // A real, independent size drift inside the same container: the numbers
+      // do not match the padding, so it must survive as a comparison.
+      { kind: 'comparison', viewport: 'mobile', element: 'table', prop: 'width',
+        group: 'size', severity: 'medium', expected: '341px', actual: '420px', delta: 79 },
+    ];
+    const tree = { title: ['card'], cta: ['card'], table: ['card'], card: [] };
+    const out = attributeDerived(raw, tree);
+
+    // Optional chaining throughout: a check that throws reports a stack trace
+    // instead of a failing assertion, and a stack trace does not say which
+    // expectation was not met.
+    const of = (el) => out.find((f) => f.element === el && f.prop === 'width') || {};
+    ok('a child width explained by an ancestor becomes derived',
+      of('title').kind === 'derived' && of('cta').kind === 'derived');
+    ok('and it names the finding that explains it',
+      of('title').derivedFrom?.element === 'card' &&
+      !!of('title').derivedFrom?.props?.includes('paddingLeft'));
+    ok('an unexplained child width stays a comparison',
+      of('table').kind === 'comparison');
+    ok('the cause itself is untouched',
+      out.find((f) => f.element === 'card' && f.prop === 'paddingLeft')?.kind === 'comparison');
+    ok('nothing is deleted', out.length === raw.length);
+
+    // **A height is never attributed**, even when the arithmetic lines up
+    // perfectly. A container is as tall as its content, so a child's height is
+    // the cause and the container's height the consequence — attributing the
+    // child inverts the causality. The numbers here are the fixtures' own: card
+    // is 4px shorter with 8px more padding each side, which predicts -20px, and
+    // icon-btn is -20px for an unrelated deliberate fault.
+    const vert = attributeDerived([
+      { kind: 'comparison', viewport: 'mobile', element: 'card', prop: 'paddingTop',
+        group: 'spacing', severity: 'high', expected: '16px', actual: '24px', delta: 8 },
+      { kind: 'comparison', viewport: 'mobile', element: 'card', prop: 'paddingBottom',
+        group: 'spacing', severity: 'high', expected: '16px', actual: '24px', delta: 8 },
+      { kind: 'comparison', viewport: 'mobile', element: 'card', prop: 'height',
+        group: 'size', severity: 'medium', expected: '211px', actual: '207px', delta: -4 },
+      { kind: 'comparison', viewport: 'mobile', element: 'title', prop: 'height',
+        group: 'size', severity: 'medium', expected: '44px', actual: '24px', delta: -20 },
+    ], tree);
+    ok('a height is never attributed, even when the arithmetic fits',
+      vert.find((f) => f.element === 'title' && f.prop === 'height')?.kind === 'comparison');
+
+    // A finding in another viewport must not explain this one.
+    const cross = attributeDerived([
+      { kind: 'comparison', viewport: 'desktop', element: 'card', prop: 'paddingLeft',
+        group: 'spacing', severity: 'high', expected: '16px', actual: '24px', delta: 8 },
+      { kind: 'comparison', viewport: 'desktop', element: 'card', prop: 'paddingRight',
+        group: 'spacing', severity: 'high', expected: '16px', actual: '24px', delta: 8 },
+      { kind: 'comparison', viewport: 'mobile', element: 'title', prop: 'width',
+        group: 'size', severity: 'medium', expected: '341px', actual: '325px', delta: -16 },
+    ], tree);
+    ok('a cause in another viewport explains nothing',
+      cross.find((f) => f.element === 'title')?.kind === 'comparison');
+  }
+
+
+    // A consequence must be printed under its cause, not merely indented
+    // wherever severity sorting drops it.
+    const rendered = formatReport({
+      summary: { pass: false, viewports: 1, totalFindings: 3, highSeverity: 1, derived: 1 },
+      findings: [
+        { kind: 'comparison', viewport: 'mobile', element: 'card', prop: 'paddingLeft',
+          severity: 'high', expected: '16px', actual: '24px', delta: 8 },
+        { kind: 'comparison', viewport: 'mobile', element: 'card', prop: 'height',
+          severity: 'medium', expected: '211px', actual: '207px', delta: -4 },
+        { kind: 'derived', viewport: 'mobile', element: 'title', prop: 'width',
+          severity: 'medium', expected: '341px', actual: '325px', delta: -16,
+          derivedFrom: { element: 'card', props: ['paddingLeft'], delta: -16 } },
+      ],
+    }).split('\n').map((l) => l.trim());
+    const iCause = rendered.findIndex((l) => l.startsWith('[high] card · paddingLeft'));
+    const iEffect = rendered.findIndex((l) => l.startsWith('└ title'));
+    ok('a consequence is printed directly under its cause',
+      iCause >= 0 && iEffect === iCause + 1);
 
   for (const c of checks) console.log(`${c.pass ? 'ok  ' : 'FAIL'}  ${c.label}`);
   const failed = checks.filter((c) => !c.pass).length;
