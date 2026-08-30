@@ -23,11 +23,11 @@ and no browser, and the same shapes turn up anyway. These are not browser proble
 - [7. The report that only speaks when it fails](#7-the-report-that-only-speaks-when-it-fails)
 - [8. The more accurate measurement that changed nothing](#8-the-more-accurate-measurement-that-changed-nothing)
 - [9. The precondition the suite cannot create](#9-the-precondition-the-suite-cannot-create)
+  - [9a. The precondition the environment quietly declines to provide](#9a-the-precondition-the-environment-quietly-declines-to-provide)
 - [10. The knob that moved with the fix and was not the cause](#10-the-knob-that-moved-with-the-fix-and-was-not-the-cause)
 - [11. The check nobody ran](#11-the-check-nobody-ran)
 - [12. Fifteen out of sixteen](#12-fifteen-out-of-sixteen)
 - [13. Two instruments that could not see what they were aimed at](#13-two-instruments-that-could-not-see-what-they-were-aimed-at)
-  - [9a. The precondition the environment quietly declines to provide](#9a-the-precondition-the-environment-quietly-declines-to-provide)
 - [The checklist](#the-checklist)
 
 ## 1. The test that never asserted
