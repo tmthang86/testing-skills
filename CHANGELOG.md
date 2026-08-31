@@ -4,6 +4,34 @@
 
 Initial draft of both skills.
 
+### e2e-testing — six more from the system with no UI, and the half of the document about red
+
+Continues the batch that brought §10–13, from the same second system: a network server driven end
+to end over a real socket, with its own gates, syscall traces and allocation counters. **The skills
+were not used on that system** — it produced these cases independently and they are contributed
+back, because the failure shapes turned out to be the *same shapes* reached by different
+instruments.
+
+The pattern worth stating on its own: in **seven of the eight incidents** behind these cases, the
+code was correct and the evidence was broken. None was found by re-reading code.
+
+- `references/false-greens.md` gains §14–19, all measured. A negative test — `compile_fail`,
+  `toThrow`, the red half of a reversal — that went red for a **different** reason than the one it
+  was written for, and the gate whose own two red halves both reported `RED ok` while a typo meant
+  nothing had been measured at all. A build flag that a sibling package silently switched back on,
+  so a job named *"builds with nothing optional installed"* was green about a build that never
+  happened — caught by a test count off by four, not by the gate. A latency figure parsed as **50**
+  because that is the first run of digits in its own label, `p50`, in the one assertion capable of
+  catching the failure the gate existed for. A test that pushed a value into a list and then
+  asserted the list contained it, which stayed green with the production line deleted. A test that
+  asked about a file descriptor it had already closed, green 30 times and red on the first cold run
+  because another thread had been handed the number. And a defect no test in that language could
+  ever have reproduced, because the runtime sets `SIGPIPE` to `SIG_IGN` before `main` and the
+  library cannot assume its host does the same.
+- The checklist gains a second half. Items 1–21 are *before believing a green run*; the new 22–29
+  are *before believing a **red** one, or a gate that contains its own red half* — which is what
+  §14–19 are collectively about.
+
 ### design-conformance-testing — sampling a non-uniform backdrop, and four ways it silently doesn't happen
 
 `references/layers.md` already advised sampling the lightest and darkest points

@@ -15,9 +15,15 @@ left to do and the decisions worth preserving.
 | `compare-design.mjs` browser path | Exercised by CI on every push via `scripts/integration-test.mjs` against fixtures with known faults. **Never run against a real application** |
 | Skill triggering | **Not evaluated.** No trigger evals run |
 | Skill output quality | **Not evaluated.** No test prompts run end-to-end |
+| `references/false-greens.md` §10–19 | **Measured on a second, non-UI system — not by using this skill.** Every figure was observed while building a protocol server end to end; none of it validates the skill itself |
 
 Nothing here has been proven against a real app. Treat it as a solid draft, not a
 finished tool.
+
+**One clarification now that outside material has arrived.** `false-greens.md` §10–19 comes from a
+second system — a network server with no UI — and every figure in it was measured. That is evidence
+the *cases* generalise beyond the one desktop app. It is **not** evidence about these skills: that
+system never invoked them. The row above says so, and the gap in "First thing to do" is unchanged.
 
 ## First thing to do
 
