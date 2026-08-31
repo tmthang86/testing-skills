@@ -118,6 +118,18 @@ path, which the fixtures cover but real markup will stress differently.
    Sequence this after item 3 — a third skill widens the triggering surface, and
    measuring the boundaries between two skills is the prerequisite for adding a third.
 
+   **Draft content for step (b) already exists**, measured rather than reasoned:
+   [`docs/drafts/protocol-e2e-testing.md`](drafts/protocol-e2e-testing.md). Framing (one
+   read is not one message), settling (and why a score that climbs with its own timeout is
+   measuring the timeout), using a public conformance corpus as the oracle and proving that
+   oracle can fail in *both* directions, injecting the clock and nothing else, and the
+   assertions a protocol test can make that a UI test cannot — allocation counts, syscalls
+   attributed by thread id, CPU over a wall-clock window against the scheduler state. It sits
+   in `docs/drafts/` on purpose: it is not referenced from any `SKILL.md`, so it adds no
+   triggering surface and settles nothing about placement. **It is one system, which is its
+   honest limit** — the sequencing above still holds, and a datagram or broker-based protocol
+   will have settling problems it has not met.
+
 ## Design decisions worth preserving
 
 If you refactor, these are the load-bearing ideas — losing them quietly degrades the

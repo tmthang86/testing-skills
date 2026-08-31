@@ -4,6 +4,20 @@
 
 Initial draft of both skills.
 
+### docs — a measured draft for the protocol skill the roadmap proposes
+
+`docs/drafts/protocol-e2e-testing.md` is new: the e2e loop with the screen taken away, drawn from
+building one network server end to end over a real socket. Framing, settling, using a public
+conformance corpus as the oracle and proving that oracle can fail in both directions, injecting the
+clock and nothing else, and the assertions a protocol test can make that a UI test cannot.
+
+Its most reusable sentence is about settling: **a result that is flat across its own bound is
+measuring the system; a result that climbs with the bound is measuring the bound.**
+
+It is a draft in `docs/`, not a skill reference. Nothing links to it from a `SKILL.md`, so it adds
+no triggering surface, and where it eventually lives is ROADMAP open item 7's question to answer,
+not this file's.
+
 ### design-conformance-testing — sampling a non-uniform backdrop, and four ways it silently doesn't happen
 
 `references/layers.md` already advised sampling the lightest and darkest points
