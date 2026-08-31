@@ -6,7 +6,7 @@ suite that asserts everything print the same word.
 
 Everything below was measured, not researched. Cases 1–9 come from a real desktop application over
 about a week — a Tauri app with a WebDriver suite, a Rust test suite, and live API tests. Cases
-10–19, and two of the additions to §5, come from a second system with no UI at all: a FIX protocol
+10–22, and two of the additions to §5, come from a second system with no UI at all: a FIX protocol
 engine, whose end-to-end tests drive real bytes through a real socket. Each case cost hours before
 it was understood, and each one had been green — or red for the wrong reason — the whole time.
 
@@ -18,6 +18,14 @@ the details: **in seven of the eight incidents behind them, the code was correct
 was broken.** Not one was found by re-reading code. Every one was found by running something and
 looking at what came back. They also turn the document around — 1–13 are ways a **green** means
 nothing; 14 onwards are ways a **red**, or a gate's own red half, means nothing either.
+
+**Cases 20–22 are about a different kind of test: the benchmark.** A performance gate is a test
+whose assertion is a number, and it fails in ways an assertion about behaviour cannot — the
+apparatus can be most of the reading, the baseline can be recorded through a path the gate never
+takes, and the measuring loop can be part of what it measures. They are here rather than in a
+document of their own because the shapes are the ones already above: an instrument that cannot see
+what it is aimed at (§13), a comment standing in for a check (§17a), and a harness the test
+assembled around itself (§17).
 
 ## Table of contents
 - [1. The test that never asserted](#1-the-test-that-never-asserted)
@@ -43,6 +51,10 @@ nothing; 14 onwards are ways a **red**, or a gate's own red half, means nothing 
   - [17a. The test's own comment is not evidence](#17a-the-tests-own-comment-is-not-evidence)
 - [18. The identifier the test had already given back](#18-the-identifier-the-test-had-already-given-back)
 - [19. Green because the runtime was masking it](#19-green-because-the-runtime-was-masking-it)
+- [20. The instrument was most of the reading](#20-the-instrument-was-most-of-the-reading)
+- [21. The baseline was recorded through a shorter path than the gate](#21-the-baseline-was-recorded-through-a-shorter-path-than-the-gate)
+  - [21a. The measuring loop was part of what it measured](#21a-the-measuring-loop-was-part-of-what-it-measured)
+- [22. The rate was measured in one regime and used in another](#22-the-rate-was-measured-in-one-regime-and-used-in-another)
 - [The checklist](#the-checklist)
 
 ## 1. The test that never asserted
@@ -854,6 +866,198 @@ soundness and nobody had asked for it. *A justification can be true, well-writte
 about the wrong property.* When a comment exists to make an escape hatch believable, name the
 property it establishes — and then ask which other properties that hatch needed.
 
+## 20. The instrument was most of the reading
+
+A benchmark whose smallest case is the same order of magnitude as the harness around it is
+reporting the harness. This is not a rounding error; it was **80% of the number**.
+
+Measured. A timing harness compared each case against a ceiling passed in at the call site:
+
+```
+bench("one small operation", CEILING, || { ...the work... });
+```
+
+The ceilings were moved into a lookup, so the parameter went away and the call became
+`bench("one small operation", || { ...the work... })`. **The timed loop was not touched — not
+one byte.** The case went from **6.3 ns to 1.3 ns**, reproducibly.
+
+**This is not a property of one language or one benchmark library.** Any harness that wraps the
+work in a call it also times has the same exposure: a `performance.now()` loop around a closure,
+a fixture that yields to the code under test, a shell script timing a subprocess. The smaller the
+unit under test, the larger the share the wrapper owns.
+
+### The check that settles it, and it costs one edit
+
+A benchmark that gets 5× faster when a signature changes has, on the face of it, stopped
+measuring. The obvious suspicion — the optimiser deleted the work — is cheap to test: **make the
+closure do the work twice and see whether the number doubles.**
+
+| | reading |
+|---|---|
+| one call per iteration | 1.3 · 1.3 · 1.3 |
+| two calls per iteration | 2.6 · 2.6 · 2.6 |
+
+An exact factor of two, three runs each. The work is real and 1.3 is real. What was wrong was
+the 6.3. The likeliest mechanism is that the changed signature let the compiler inline the
+closure into the timing loop where before it had been an indirect call — but **the mechanism was
+never confirmed and did not need to be.** Proportional response to scaled work is the property
+you want; why it broke is a separate question, and often a much more expensive one.
+
+### The tell that was there all along: the readings were quantised
+
+Across 21 runs the old harness put this case in **three discrete clusters** — 6.3–6.4 (13 runs),
+7.4 (4 runs), 8.1–8.3 (4 runs) — **with nothing in between**. Across 30 runs of the new harness
+it read **1.3 on every single run**.
+
+**Continuous scatter is noise. Quantised scatter is a mode, and a mode has a cause.** A
+distribution that clumps at a few values is telling you about the apparatus or the environment —
+alignment, placement, an indirect call taken or not — rather than about a distribution of the
+code's cost. It is one of the few anomalies visible without any extra instrumentation, and it
+only shows up if the harness prints every run rather than a single summary figure (§7).
+
+Two further confirmations, both nearly free:
+
+- **The larger cases in the same suite did not move.** An additive overhead swamps a small case
+  and disappears into a large one, which is exactly what was seen. If *every* case had moved
+  proportionally, the story would have been different.
+- **A second machine agreed.** Continuous integration, on a different vendor's CPU, independently
+  read **1.4 ns** for the same case. A second machine is the cheapest replication there is and
+  most projects already have one running.
+
+### And it had been written down, correctly, a day earlier
+
+The constant that was deleted carried this comment:
+
+> Baseline 2.5–4.9 ns across runs. The spread is the measurement's, not the code's: at this size
+> the loop is a handful of instructions and **the harness's own overhead is the same order.**
+
+That is the finding, stated accurately, by somebody who then did not measure it — and the number
+it invalidated went into the design document anyway. This is §17a from the other direction: there,
+a comment claimed a test caught something it did not; here, a comment correctly identified a
+defect and nothing turned it into a check. **A comment that predicts a measurement is a task, not
+a result.** Either measure it or delete it, because leaving it beside the number gives the number
+a credibility it has not earned.
+
+**A small display trap in the same family.** The limit was printed with zero decimal places, so
+the smallest case rendered as `1.3 ns/op ... = 1` — reading as though it were over its limit when
+the comparison was against 1.43. **Format your thresholds to the precision of the smallest thing
+you measure**, or a reader will act on a report that is arithmetically nonsense.
+
+## 21. The baseline was recorded through a shorter path than the gate
+
+A regression baseline is only valid for the invocation that produced it. Record it a convenient
+way and enforce it a different way, and the difference between the two is a permanent, invisible
+offset.
+
+Measured. Timing baselines were recorded by invoking four benchmark targets directly, 27 times,
+on a machine whose environment gate confirmed every run. One case never came within 3% of its
+limit. The **first** run through the script that actually gates them — which runs **eight**
+targets, not four — put that case **over**.
+
+Nothing was broken. A case is not measured in the same machine state when it runs fourth as when
+it runs eighth: caches, clocks, and whatever else is still resident all differ. Re-taken through
+the real script, 24 qualifying runs produced **0 of 288** case-measurements over their limits.
+
+**Record the baseline by running the exact command the gate will run.** Not the inner target, not
+a subset "for speed", not with the slow cases skipped. If that is too slow to do 20 times, the
+honest fix is to make the gate cheaper, not to measure something else and hope.
+
+### The re-anchoring trap underneath it
+
+Retaking the sample moved one case's median from 270.4 to **267.4** — a 1% shift, and harmless
+looking. Its margin was 1.25, so its limit moved from 338.0 to **334.3**. But that case has a
+known second mode, and the mode had already been observed at **336.3**. The new limit sat *below*
+an excursion the project had measured, written up, and explicitly decided was not a regression.
+Nothing would have been wrong with the code the day it went red.
+
+**A tolerance re-derived from a fresh sample must still cover every excursion the older samples
+saw.** The rule adopted was to state it in the data file itself: the margin covers the widest
+excursion seen in *any* qualifying run on that machine, not merely the sample the median came
+from. Otherwise every re-baselining is a chance to quietly narrow a tolerance that was wide for a
+reason nobody re-reads.
+
+The same file carries one deliberate exclusion, written down rather than left implicit: the
+readings from **before** the harness fix in §20 do not count towards that case's margin, because
+they describe an apparatus that no longer exists. **When you exclude data, the exclusion belongs
+next to the data, with its reason** — otherwise the next person either rediscovers it or, worse,
+silently reverses it.
+
+### 21a. The measuring loop was part of what it measured
+
+The same exercise ran the benchmark script in a loop with no gap between iterations. The script
+begins by sampling CPU load over one second to decide whether the machine is quiet enough for the
+run to count. Back to back, it read **25%, 36%, 19%, 31%** busy — against 0–2% for the same idle
+machine measured by hand. It was measuring the **previous iteration**, which had not finished
+settling.
+
+Every one of those runs correctly disqualified itself, so nothing false was published. That was
+luck of design rather than judgement: **had the environment check warned instead of failing, all
+of them would have been kept**, and a whole baseline would have been recorded off a machine the
+loop itself was loading.
+
+Two rules:
+
+- **A harness that samples the environment to decide whether a run is valid must give the
+  environment time to return to the state it is sampling for.** Eight seconds was enough here.
+- **Sample the environment per run, not per batch.** Per-batch attribution says the session was
+  quiet on average and hides that four runs were not. The per-run reading is also what let three
+  loaded runs be discarded and the rest kept, instead of throwing away the whole sample.
+
+A related one from the same session, and the reason the per-run reading earned its keep: an
+unrelated desktop application started a background server mid-sample and took 97% of a core. The
+per-run environment reading caught it at the next iteration. **Anything that can start on its own
+— an updater, an indexer, a model server, a backup — is a measurement hazard on any machine that
+is also somebody's desk.**
+
+## 22. The rate was measured in one regime and used in another
+
+A per-unit cost — nanoseconds per element, milliseconds per row, bytes per second — is not a
+constant. It is a constant *within the regime it was measured in*, and multiplying it to reach a
+different scale silently asserts that nothing about the machine changed on the way. Twice in one
+day, something had.
+
+**Both predictions were confidently wrong, in opposite directions, and both were settled by
+measuring the second point instead of computing it.**
+
+**Wrong by 3.4%, in the direction that wasted the work.** A cost per comparison was measured over
+a scan of **78** elements and carried down to a scan of **14**. Removing the scan was predicted
+to save **36 ns**; the change was written, passed every correctness gate, and measured
+**+5.2 ns** — slower — over 30 runs per arm. Short scans on hot data with a predictable branch
+are much cheaper per element than long ones, so the rate did not survive the trip. **Only
+building the thing found it.** No amount of re-reading the estimate would have.
+
+**Wrong by 48%, in the direction that made the design look worse than it was.** A buffer's
+capacity was raised **64×**, and the time it takes to fill — the slack a stalled consumer has
+before data is lost — was reported as the small buffer's fill time multiplied by 64. Measured at
+the larger size, the real figure was **106–112×**, because the per-item cost went **135 → ~230
+ns**: the small buffer fits in L2 on that machine and the large one does not. **A buffer that
+fills more slowly gives the consumer more time, not less.**
+
+### The tell the two have in common
+
+In both, the parameter being scaled was *also* the thing that decided which hardware regime the
+code was in — scan length decides whether the branch predictor wins; working-set size decides
+which level of cache you are in. **When the number you are multiplying is also the number that
+selects the regime, the multiplier is not a multiplier.**
+
+That is the cheap check: before scaling a rate, ask *what changes about the machine between the
+two points*. If the answer is "nothing", the arithmetic is fine. If it is "the working set stops
+fitting in cache", "the batch stops fitting in one request", "the file stops fitting in the page
+cache", "the collection outgrows the small-size optimisation" — you have a prediction, not a
+figure.
+
+### And a documentation failure rides along with it
+
+The second case had been labelled honestly. The document that introduced the extrapolated
+number said in its own revision note that the value should be read as an order of magnitude
+rather than a measurement, and gave a range for it. Within a day the number had been copied into
+four other documents, and one of those copies attached a **`[measured]`** tag to it.
+
+**A caveat does not survive being copied.** If a figure is derived, put the derivation in the
+figure — "≈3.6 ms (64 KiB fill × 64, not measured)" — so the qualifier travels with the number
+instead of living in a paragraph that the next reader will not carry forward. Better still,
+measure the second point; it took one extra loop in an existing benchmark.
+
 ## The checklist
 
 Before believing a green run:
@@ -896,24 +1100,38 @@ Before believing a green run:
     a met one.
 21. For any new instrument: did it actually attach and run, is the property present in what it
     examined at all, and what concrete change makes it fail?
+22. Is the harness a significant fraction of the smallest thing it measures? Scale the work inside
+    the case and check the reading scales with it. And if the readings fall into discrete clumps
+    with nothing between them, that is a mode — of the apparatus or the environment — not noise.
+23. Was the baseline recorded by running the exact command the gate runs, or a faster subset of it?
+    And when you re-baseline, does the new tolerance still cover every excursion the old samples
+    saw?
+24. Does your measuring loop leave the machine time to settle before the next run's environment
+    check — and is that check sampled per run, so one loaded run is discarded rather than averaged
+    away?
+25. Are you multiplying a per-unit rate to reach a different scale? Ask what changes about the
+    machine between the two points — cache, batch size, page cache, a small-size optimisation. If
+    the parameter you are scaling also selects the regime, measure the second point instead. And
+    if a number is derived, put the derivation inside the number, because a caveat in a nearby
+    paragraph does not survive being copied.
 
 And before believing a **red** one, or a gate that contains its own red half:
 
-22. Does every negative assertion pin the *reason* — the error code, the message, the exit status —
+26. Does every negative assertion pin the *reason* — the error code, the message, the exit status —
     or does it accept any failure at all?
-23. Can your harness tell "the subject failed the policy" from "the measurement did not happen"? If
+27. Can your harness tell "the subject failed the policy" from "the measurement did not happen"? If
     those share an exit code, a broken harness reports exactly what a working one reports.
-24. Did the flag, feature or profile you selected actually take effect? Ask about the configuration
+28. Did the flag, feature or profile you selected actually take effect? Ask about the configuration
     directly, per package, rather than inferring it from a passing suite — and have the subject
     state which arm it ran so the harness can check the statement rather than its own intent.
-25. Was every number you are reading parsed by position or by name? A regex that takes the first
+29. Was every number you are reading parsed by position or by name? A regex that takes the first
     digits on a line will happily return the ones inside `p50`, `http2` or `sha256` — and a `| head`
     added to tidy the log will invent a count the same way it invents an exit status.
-26. Which single line of production code, if deleted, makes this test fail? If you cannot name one,
+30. Which single line of production code, if deleted, makes this test fail? If you cannot name one,
     the test may be asserting about state it assembled itself.
-27. Does the test assert about an identifier it has already released — a descriptor, a port, a pid,
+31. Does the test assert about an identifier it has already released — a descriptor, a port, a pid,
     a temp filename? Those get reissued, and the reissued one is usually quiet enough to pass.
-28. Is your runtime hiding the failure from the test — an ignored signal, a swallowed `stderr`, a
+32. Is your runtime hiding the failure from the test — an ignored signal, a swallowed `stderr`, a
     caught panic? A library cannot assume its host makes the same choice its test binary does.
-29. When a comment exists to make an escape hatch believable, which property does it actually
+33. When a comment exists to make an escape hatch believable, which property does it actually
     establish, and which properties did that hatch also need?
