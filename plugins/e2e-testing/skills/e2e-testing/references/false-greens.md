@@ -6,12 +6,18 @@ suite that asserts everything print the same word.
 
 Everything below was measured, not researched. Cases 1–9 come from a real desktop application over
 about a week — a Tauri app with a WebDriver suite, a Rust test suite, and live API tests. Cases
-10–12, and two of the additions to §5, come from a second system with no UI at all: a FIX protocol
+10–19, and two of the additions to §5, come from a second system with no UI at all: a FIX protocol
 engine, whose end-to-end tests drive real bytes through a real socket. Each case cost hours before
 it was understood, and each one had been green — or red for the wrong reason — the whole time.
 
 **That the two sources agree is the useful part.** A wire protocol has no screenshots, no locators
 and no browser, and the same shapes turn up anyway. These are not browser problems.
+
+Cases 14–19 are the later half of that second batch, and they share a pattern worth stating before
+the details: **in seven of the eight incidents behind them, the code was correct and the evidence
+was broken.** Not one was found by re-reading code. Every one was found by running something and
+looking at what came back. They also turn the document around — 1–13 are ways a **green** means
+nothing; 14 onwards are ways a **red**, or a gate's own red half, means nothing either.
 
 ## Table of contents
 - [1. The test that never asserted](#1-the-test-that-never-asserted)
@@ -28,6 +34,15 @@ and no browser, and the same shapes turn up anyway. These are not browser proble
 - [11. The check nobody ran](#11-the-check-nobody-ran)
 - [12. Fifteen out of sixteen](#12-fifteen-out-of-sixteen)
 - [13. Two instruments that could not see what they were aimed at](#13-two-instruments-that-could-not-see-what-they-were-aimed-at)
+- [14. The negative result that was negative for the wrong reason](#14-the-negative-result-that-was-negative-for-the-wrong-reason)
+  - [14a. The red half of your own gate](#14a-the-red-half-of-your-own-gate)
+- [15. The configuration under test was never built](#15-the-configuration-under-test-was-never-built)
+  - [15a. The harness that verified the result without verifying the selection](#15a-the-harness-that-verified-the-result-without-verifying-the-selection)
+- [16. The number came from the label, not the measurement](#16-the-number-came-from-the-label-not-the-measurement)
+- [17. The test that assembled the thing it was checking](#17-the-test-that-assembled-the-thing-it-was-checking)
+  - [17a. The test's own comment is not evidence](#17a-the-tests-own-comment-is-not-evidence)
+- [18. The identifier the test had already given back](#18-the-identifier-the-test-had-already-given-back)
+- [19. Green because the runtime was masking it](#19-green-because-the-runtime-was-masking-it)
 - [The checklist](#the-checklist)
 
 ## 1. The test that never asserted
@@ -586,6 +601,259 @@ of any new one, before trusting it:
   inlined code are absent from artefacts that appear to contain them.
 - What is the concrete change that should make it fail, and does it?
 
+## 14. The negative result that was negative for the wrong reason
+
+Everything in this document so far is about a **green** that means nothing. This is its mirror, and
+it is worse, because a red result feels like it has already been interrogated.
+
+A negative test — `expect(...).toThrow()`, `assertRaises`, a `compile_fail` case, an HTTP-4xx
+assertion, the deliberately-broken arm of a reversal — passes when the thing under test fails **for
+any reason at all.** Nothing checks that it failed for *your* reason.
+
+Measured: a compile-time assertion was added to refuse an invalid pairing of two types, with a
+`compile_fail` doctest to prove the refusal was live. The doctest passed on the first run. It was
+passing because the example had a **different** mistake in it — a malformed generic argument that
+failed type resolution long before reaching the assertion. The refusal under test had never been
+exercised. The fix was to read the actual compiler output, confirm it named the intended message,
+and then pin the error code so the test could not drift onto a different failure:
+
+```rust
+/// ```compile_fail,E0080     // the code, not just "this must not compile"
+```
+
+Most ecosystems have the equivalent and most people skip it: `pytest.raises(ValueError,
+match="...")` rather than bare `raises`, `toThrow(/specific message/)` rather than `toThrow()`,
+asserting the status *and* the error body rather than `res.status >= 400`.
+
+### 14a. The red half of your own gate
+
+The sharper version. A gate that runs the system twice — once expecting a pass, once expecting a
+failure — is only as good as its ability to tell **"failed the policy"** from **"could not be
+measured."** If both come back as the same non-zero, a completely broken harness reports exactly
+what a working one reports.
+
+Measured: a gate ran a server in three modes, asserting one should pass and two should fail. A typo
+in the measurement code — a missing pair of braces in a shell arithmetic expansion — broke every
+measurement in all three arms. The output read:
+
+```
+GREEN half:  FAIL: does not satisfy the policy      ← nothing was measured
+RED half:    RED ok — trips it, as it must          ← nothing was measured
+RED half:    RED ok — trips it, as it must          ← nothing was measured
+```
+
+Two of the three lines are the ones you *want* to see. Only the first suggests anything is wrong,
+and it looks like an ordinary failure of the thing under test.
+
+**The fix is two exit codes, not one.** Separate the verdict from the measurement:
+
+```
+0  the subject satisfied the policy
+1  the subject did NOT satisfy the policy   ← the only thing a red half may accept
+2  the measurement did not happen           ← never evidence of anything
+```
+
+Then the green half requires 0, each red half requires exactly 1, and a `2` anywhere aborts the
+whole gate saying so. This is §5 arriving one level up: *a reversal can itself be a no-op*, and a
+gate's built-in red half is a reversal that runs on every CI push for ever.
+
+## 15. The configuration under test was never built
+
+A flag, feature, profile or environment variable selects the thing you mean to test. The suite runs.
+The flag never took effect, and nothing anywhere says so.
+
+Two shapes, measured a few hours apart in the same codebase, failing in opposite directions.
+
+**Widened scope — a neighbour switched it back on.** A CI job called *"builds with nothing optional
+installed"* ran the build tool's `--no-default-features` across the whole workspace. That flag
+applies to the *invocation*, and the tool then unifies features across everything in it — so a
+sibling binary in the same workspace, which depends on the library with defaults on, silently
+re-enabled the feature under test. The optional dependency was compiled every time. The job had been
+green about a build that never happened.
+
+It was noticed by a **test count**, not by the gate: a `cfg`-gated test file should have vanished,
+so the run was expected to report four fewer tests and reported the same number. **Had the new
+module carried no tests of its own — the ordinary case — the counts would have matched and nothing
+would have pointed at it.**
+
+**Narrowed scope — the condition was simply false.** In the same session, a command-line tool grew a
+`--mode` flag whose branches sat behind `#[cfg(feature = "x")]`. Features are per-crate and a `cfg`
+never reaches into a dependency's, so the binary's own manifest — which declared no features at all
+— made the condition false, every branch took its `else`, and the tool **accepted the flag, printed
+`mode: standard`, exited 0, and ran nothing.** The banner prints before the branch; the only tell
+was an absent block of output further down.
+
+The build tool had been warning on that exact line the whole time. What actually caught it was
+running the tool and reading what came back.
+
+**Three rules:**
+
+- **Ask about the configuration, not about the test result.** "Is this dependency in the graph with
+  no features on?" is a question with a direct answer; "did the tests pass?" is not that question.
+  Run it **per package**, which is usually the only scope where such a flag means what it reads as.
+- **When a check cannot tell, it must fail.** That gate had a third branch printing *"could not
+  tell"* and exiting non-zero. It fired the moment the dependency was later added as a *dev*
+  dependency and the tool's message changed — and failing was right, even though the answer was
+  benign, because a check that cannot tell must never report ok.
+- **Make the subject state which arm it took, and check the statement.** See §15a.
+
+### 15a. The harness that verified the result without verifying the selection
+
+Any A/B gate — two modes, two algorithms, two configurations — rests entirely on arm B being
+different from arm A. Almost none of them check.
+
+The gate above ran the same binary twice with different `--mode` values and compared the behaviour.
+Had it existed one day earlier, it would have been **green about two runs of the identical mode**,
+because the flag was inert.
+
+The fix is cheap and belongs on both sides. The subject prints what it selected, on its own line:
+
+```
+mode: standard
+```
+
+and the harness reads it back and refuses when it disagrees with what it asked for:
+
+```
+w2w ran mode 'yield' when 'hft' was asked for      exit=1
+```
+
+Proven by reversal: ask for one mode, pass the flag for another, watch the harness refuse. Without
+that, "I passed the flag" is an intention, not an observation.
+
+## 16. The number came from the label, not the measurement
+
+Two incidents, one shape: **a figure that was parsed out of text and never was the thing it claimed
+to be.** Both passed every assertion made about them.
+
+**A count that was the pager's.** A test suite's result was reported as *"30 test binaries"*. There
+were 48. The command had ended in `| head -30`, added to keep the log readable, and the number was
+arrived at by counting the surviving lines. Nothing was broken, which is exactly what made it
+survive: a truncated pass looks identical to a complete one.
+
+**A value that was part of its own label.** A gate extracted a latency percentile from a report line
+that reads:
+
+```
+     p50        17664 ns
+```
+
+with `grep -oE '[0-9]+' | head -1` — which returns **50**, the digits in the label `p50`, because
+that is the first run of digits on the line. The assertion compared 50 against its ceiling of
+1,000,000 and passed. That assertion was the *only* one in a four-assertion gate capable of
+distinguishing the failure the gate existed to catch, and it had been comparing a constant with a
+constant.
+
+**The tell was available and nearly missed: the same value appeared in all three arms.** Three
+different runs of three different modes reported a p50 of exactly 50 ns. Numbers that should differ
+and do not are the cheapest anomaly detector there is, and it only works if the harness *prints*
+them — see §7.
+
+**Two rules:**
+
+- **Extract by position or by name, never by "the first number on the line."** `awk '{print $2}'`,
+  a named capture group, or structured output. Regexes that scan for digits will find the ones in
+  your own labels — `p50`, `http2`, `sha256`, `utf8`, `v2`.
+- **Never pipe a command whose count you intend to trust.** Redirect to a file and count that. The
+  same keystroke that tidies the log invents the number (see also §3, where the same pipe invents
+  the exit status).
+
+## 17. The test that assembled the thing it was checking
+
+A test that builds its own expected state, and then asserts the state is what it built, is checking
+itself.
+
+Measured: a server had to register a listening socket in the set of things it waits on — forget it,
+and new connections are accepted a whole timeout late instead of immediately. The test read:
+
+```rust
+let mut list = engine.refresh_interests().to_vec();
+list.push(Interest::readable(listener));       // the test puts it in
+assert!(list.contains(&Interest::readable(listener)));   // ...and finds it
+```
+
+It passed. It also passed with the *production* line that adds the listener **deleted** — because
+the test never went near that code. It was named after a behaviour it did not exercise.
+
+The fix was to expose the exact call the production path makes, and route the test through it. Then
+deleting that line turns it red.
+
+**The question to ask of any test: which line of production code, if deleted, makes this fail?** If
+you cannot name one, the test is a description. This is the reason §5's reversal discipline exists,
+and it is worth applying at the moment a test is *written* rather than only when a guard is
+promoted.
+
+### 17a. The test's own comment is not evidence
+
+The same test carried a doc comment claiming it would also catch *wiring* failures — that a missing
+registration would show up as the run taking minutes instead of seconds. Three timings refuted it:
+baseline **3.28 s**, the wiring deliberately broken **3.30 s**, a second wiring fault **3.34 s**.
+The settle criterion was shorter than the timeout, so one wait satisfied it whether it had been
+woken early or not, and the harness could not tell those apart.
+
+The test was fine. Its documentation was wrong, and documentation is the part nobody reverses.
+**When a test claims to catch a class of bug, introduce that bug once and watch.** Then write down
+what it actually catches, including the part it does not.
+
+## 18. The identifier the test had already given back
+
+A test released a resource and then asserted something about its identifier. It passed 30 times and
+failed on the 31st — the first cold run.
+
+Measured: the test closed a socket and asked the kernel about its file descriptor, expecting *"no
+such descriptor."* Descriptor numbers are reused eagerly, lowest-free-first, and several other tests
+in the same binary were opening sockets on other threads. When one of them was handed that number,
+the descriptor was valid, live and quiet — and *quiet* is indistinguishable from *closed* at that
+layer, which was precisely the distinction under test. The green depended on thread scheduling.
+
+The failure location named the branch, which is what made it diagnosable in one read rather than one
+afternoon.
+
+**The class is bigger than descriptors:** process ids, TCP ports, temporary filenames, database row
+ids, session tokens, cache keys, container names. Anything an allocator hands back and later hands
+out again.
+
+**Two rules:**
+
+- **Do not assert about an identifier you have released.** Ask about one that can never have been
+  issued — a descriptor above any plausible limit, a port in a reserved range, a UUID you invented.
+  The rewritten test asked about `i32::MAX` and failed 0 times in 40 runs.
+- **A flaky guard is worse than a missing one, and the fix is never a retry.** A retry converts a
+  real signal into a slower green. Remove the mechanism that makes it racy.
+
+## 19. Green because the runtime was masking it
+
+A defect that cannot be reproduced from inside your test process, because your language runtime is
+suppressing exactly the thing that would reveal it.
+
+Measured, and found by a review bot rather than by any suite: a server handed out handles that other
+threads used to wake it. When the server was dropped while a thread still held a handle, that
+thread's write went to a pipe with no reader — which raises `SIGPIPE`, whose default action
+**terminates the process.**
+
+Every test passed. Rust's runtime sets `SIGPIPE` to `SIG_IGN` before `main`, so inside a test binary
+the write merely returns `EPIPE`, and the return value was being deliberately ignored. **This is a
+library**: loaded into a host that does not do that — a C program, or a `main` that restores the
+default — it kills the process. Reproduced only after restoring the default disposition explicitly:
+
+```
+process didn't exit successfully  (signal: 13, SIGPIPE: write on a pipe with no one to read)
+```
+
+The test that proves it lives in **its own test binary**, because changing a process-global signal
+disposition must not be done to the rest of the suite.
+
+Neighbouring things a runtime hides from your tests: default signal dispositions, an allocator that
+zeroes freed memory in debug builds, a panic hook that turns an abort into a caught unwind, a test
+framework that swallows `stderr`, a `Drop` order that only differs under optimisation.
+
+**And the second lesson is not about signals.** The unsafe block at fault carried a written
+justification, and it was correct — it proved the pointer was live, the length right, nothing
+retained. It said nothing about the **signal** contract, because that is a different kind of
+soundness and nobody had asked for it. *A justification can be true, well-written, reviewed, and
+about the wrong property.* When a comment exists to make an escape hatch believable, name the
+property it establishes — and then ask which other properties that hatch needed.
+
 ## The checklist
 
 Before believing a green run:
@@ -628,3 +896,24 @@ Before believing a green run:
     a met one.
 21. For any new instrument: did it actually attach and run, is the property present in what it
     examined at all, and what concrete change makes it fail?
+
+And before believing a **red** one, or a gate that contains its own red half:
+
+22. Does every negative assertion pin the *reason* — the error code, the message, the exit status —
+    or does it accept any failure at all?
+23. Can your harness tell "the subject failed the policy" from "the measurement did not happen"? If
+    those share an exit code, a broken harness reports exactly what a working one reports.
+24. Did the flag, feature or profile you selected actually take effect? Ask about the configuration
+    directly, per package, rather than inferring it from a passing suite — and have the subject
+    state which arm it ran so the harness can check the statement rather than its own intent.
+25. Was every number you are reading parsed by position or by name? A regex that takes the first
+    digits on a line will happily return the ones inside `p50`, `http2` or `sha256` — and a `| head`
+    added to tidy the log will invent a count the same way it invents an exit status.
+26. Which single line of production code, if deleted, makes this test fail? If you cannot name one,
+    the test may be asserting about state it assembled itself.
+27. Does the test assert about an identifier it has already released — a descriptor, a port, a pid,
+    a temp filename? Those get reissued, and the reissued one is usually quiet enough to pass.
+28. Is your runtime hiding the failure from the test — an ignored signal, a swallowed `stderr`, a
+    caught panic? A library cannot assume its host makes the same choice its test binary does.
+29. When a comment exists to make an escape hatch believable, which property does it actually
+    establish, and which properties did that hatch also need?
